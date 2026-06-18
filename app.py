@@ -205,13 +205,26 @@ SHOW_KEYWORDS = {
 }
 
 def detect_design_from_ocr(ocr_text):
-    """Match show name from OCR text — works with Telugu and English."""
+    """
+    Match show name from OCR text — works with Telugu and English.
+    Also tries partial Telugu character matching for robustness.
+    """
     if not ocr_text:
         return None
+    # Direct keyword match
     for design, keywords in SHOW_KEYWORDS.items():
         for kw in keywords:
             if kw.lower() in ocr_text.lower() or kw in ocr_text:
                 return design
+    # Partial match — check if any 3+ char substring matches
+    for design, keywords in SHOW_KEYWORDS.items():
+        for kw in keywords:
+            if len(kw) >= 4:
+                # Check any 4-char window
+                for i in range(len(kw)-3):
+                    chunk = kw[i:i+4]
+                    if chunk in ocr_text:
+                        return design
     return None
 
 GPS_KEYWORDS = {
@@ -597,11 +610,20 @@ def location_progress():
 
 @app.route("/image/<photo_id>")
 def serve_image(photo_id):
-    col = get_db()
-    if col is not None:
-        rec = col.find_one({"id": photo_id}, {"image_b64": 1})
-        if rec and rec.get("image_b64"):
-            return send_file(io.BytesIO(base64.b64decode(rec["image_b64"])), mimetype="image/jpeg")
+    try:
+        col = get_db()
+        if col is not None:
+            rec = col.find_one({"id": photo_id}, {"image_b64": 1})
+            if rec and rec.get("image_b64"):
+                img_bytes = base64.b64decode(rec["image_b64"])
+                buf = io.BytesIO(img_bytes)
+                buf.seek(0)
+                from flask import Response
+                return Response(buf.getvalue(), mimetype="image/jpeg",
+                               headers={"Cache-Control": "public, max-age=3600",
+                                        "Access-Control-Allow-Origin": "*"})
+    except Exception as e:
+        print(f"serve_image error: {e}")
     return "Not found", 404
 
 @app.route("/update", methods=["POST"])
