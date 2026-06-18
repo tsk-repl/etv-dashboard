@@ -276,7 +276,8 @@ def process_photo(file_path, filename, reviewer=""):
 
 @app.route("/")
 def index():
-    return send_from_directory("static", "index.html")
+    static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+    return send_from_directory(static_dir, "index.html")
 
 @app.route("/upload", methods=["POST"])
 def upload():
