@@ -331,44 +331,24 @@ def detect_series_from_location(location):
 def extract_f_number(ocr_text):
     """
     Extract F-number from sticker OCR.
-    Filters out: number plates (AP39, TS07 etc), large numbers, non-series codes.
-    F-numbers are typically: F1-F250, or series codes like AA5, CQ45 etc.
+    Only accepts series codes from our 136-centre map.
+    Strictly filters number plates, large numbers, and non-campaign codes.
     """
-    # Known number plate state codes to EXCLUDE
     NUMBER_PLATE_CODES = {
-        "AP", "TS", "TN", "KA", "MH", "DL", "GJ", "RJ", "UP", "MP",
-        "WB", "OR", "HR", "PB", "HP", "JK", "BR", "JH", "CG", "AS",
-        "GNT", "HYD"
+        "AP","TS","TN","KA","MH","DL","GJ","RJ","UP","MP",
+        "WB","OR","HR","PB","HP","JK","BR","JH","CG","AS",
+        "GNT","HYD","KL","GA","TR","NL"
     }
-
-    # Find all possible F-number candidates
-    patterns = [
-        r'\b([A-Z]{1,2})\s*(\d{1,4})\b',
-    ]
-
     candidates = []
-    for pat in patterns:
-        for m in re.finditer(pat, ocr_text, re.IGNORECASE):
-            series = m.group(1).upper()
-            number = int(m.group(2))
-
-            # Skip number plate codes
-            if series in NUMBER_PLATE_CODES:
-                continue
-
-            # Skip if number is too large (number plates have 4-digit numbers like 2515, 6782)
-            # F-numbers are max ~250
-            if number > 500:
-                continue
-
-            # Must be a valid series from our map
-            if series in SERIES_MAP:
+    for m in re.finditer(r'\b([A-Z]{1,2})\s*(\d{1,3})\b', ocr_text, re.IGNORECASE):
+        series = m.group(1).upper()
+        number = int(m.group(2))
+        # Must be in our series map AND not a number plate code
+        if series in SERIES_MAP and series not in NUMBER_PLATE_CODES:
+            if 1 <= number <= 500:  # valid F-number range
                 candidates.append((series, f"{series}{number}", number))
-
     if not candidates:
         return None, None
-
-    # Pick the one with smallest number (most likely to be F1, F2 etc not a plate)
     candidates.sort(key=lambda x: x[2])
     return candidates[0][0], candidates[0][1]
 
@@ -429,48 +409,72 @@ def process_photo(file_bytes, filename, reviewer="Team"):
     # Detect location from GPS text
     location = detect_location(gps_text)
 
-    # ── Step 1b: Extract number plate from auto body area ─────
-    # Number plate is in the lower portion of the auto body (y 55-75%)
+    # ── Step 1b: Extract number plate ───────────────────────────
+    # Number plate is in the lower-center of the auto body (y 55-80%)
+    # We crop that area precisely and run Vision OCR on it
     try:
-        from PIL import Image as PILImg
+        from PIL import Image as PILImg, ImageEnhance as PILEnh
         img_tmp = PILImg.open(io.BytesIO(file_bytes)).convert("RGB")
         w_tmp, h_tmp = img_tmp.size
-        plate_region = img_tmp.crop((0, int(h_tmp*0.55), w_tmp, int(h_tmp*0.75)))
+        # Crop number plate region — lower half, exclude GPS stamp
+        plate_region = img_tmp.crop((int(w_tmp*0.05), int(h_tmp*0.56),
+                                     int(w_tmp*0.95), int(h_tmp*0.76)))
+        # Enhance contrast for better plate reading
+        plate_region = PILEnh.Contrast(plate_region).enhance(2.0)
         plate_buf = io.BytesIO()
-        plate_region.save(plate_buf, format="JPEG", quality=90)
+        plate_region.save(plate_buf, format="JPEG", quality=92)
         plate_ocr = vision_ocr(plate_buf.getvalue())
         auto_plate = extract_number_plate(plate_ocr)
-        # Also try full GPS region (sometimes plate is visible there)
+        # Fallback: search in GPS text (sometimes plate appears there)
         if not auto_plate:
             auto_plate = extract_number_plate(gps_text)
+        # Fallback: search in full sticker OCR
+        if not auto_plate and sticker_text:
+            auto_plate = extract_number_plate(sticker_text)
         record["auto_plate"] = auto_plate
-    except:
+    except Exception as e:
         record["auto_plate"] = None
+        print(f"Plate extraction error: {e}")
 
     # ── Step 2: OCR the sticker area ────────────────────────────
     sticker_bytes = extract_sticker_region(file_bytes)
     sticker_text  = vision_ocr(sticker_bytes)
 
     # Detect design from show title text on sticker
+    # Also try with GPS text in case sticker OCR missed it
     detected_design = detect_design_from_ocr(sticker_text)
+    if not detected_design:
+        # Try combining both OCR results
+        detected_design = detect_design_from_ocr(sticker_text + " " + gps_text)
     if detected_design:
         record["design"] = detected_design
+        print(f"Design detected: {detected_design}")
 
     # Extract F-number and series from sticker
     series, f_number = extract_f_number(sticker_text)
     record["series"]   = series
     record["f_number"] = f_number
 
-    # If GPS didn't give location, try series lookup
-    if not location and series:
+    # If GPS didn't give location, try series lookup from sticker OCR
+    if not location and series and series in SERIES_MAP:
         info = SERIES_MAP.get(series, {})
         location = info.get("location")
 
     record["location"] = location or "Unknown"
 
-    # Get state from series
-    if series and series in SERIES_MAP:
-        record["state"] = SERIES_MAP[series]["state"]
+    # IMPORTANT: Series must come from location, not from number plate OCR
+    # Look up the correct series from the detected location
+    correct_series = None
+    for s, info in SERIES_MAP.items():
+        if info["location"].upper() == (location or "").upper():
+            correct_series = s
+            break
+    if correct_series:
+        record["series"] = correct_series
+        record["state"]  = SERIES_MAP[correct_series]["state"]
+    elif series and series in SERIES_MAP:
+        record["series"] = series
+        record["state"]  = SERIES_MAP[series]["state"]
 
     # ── Step 3: Basic QC ──────────────────────────────────────
     if not location:
