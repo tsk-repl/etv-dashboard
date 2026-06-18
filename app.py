@@ -486,7 +486,7 @@ def location_progress():
 @app.route("/image/<photo_id>")
 def serve_image(photo_id):
     col = get_db()
-    if col:
+    if col is not None:
         rec = col.find_one({"id": photo_id}, {"image_b64": 1})
         if rec and rec.get("image_b64"):
             return send_file(io.BytesIO(base64.b64decode(rec["image_b64"])), mimetype="image/jpeg")
@@ -496,7 +496,7 @@ def serve_image(photo_id):
 def update():
     d   = request.json
     col = get_db()
-    if col:
+    if col is not None:
         fields = {k: d[k] for k in ["status", "design", "f_number", "location", "series"] if d.get(k)}
         if fields:
             col.update_one({"id": d["id"]}, {"$set": fields})
