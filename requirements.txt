@@ -1,7 +1,6 @@
 flask
+pymongo
 pillow
-easyocr
-opencv-python-headless
 python-pptx
 pandas
 openpyxl
