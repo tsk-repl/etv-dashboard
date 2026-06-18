@@ -1,10 +1,11 @@
 """
-ETV Auto Sticker Dashboard - Lightweight Version
-No heavy OCR libraries - works on Render free plan
-Team manually confirms location/number when needed
+ETV Auto Sticker Dashboard - Production Version
+Google Vision API for OCR (zero server RAM)
+MongoDB Atlas for storage
+Render Starter for hosting
 """
 from flask import Flask, request, jsonify, send_from_directory, send_file
-import os, re, hashlib, base64, io
+import os, re, hashlib, base64, io, json, requests as req_lib
 from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
@@ -17,16 +18,16 @@ UPLOAD_FOLDER.mkdir(exist_ok=True)
 OUTPUT_FOLDER.mkdir(exist_ok=True)
 
 SUPPORTED_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
-
-from pymongo import MongoClient
+GOOGLE_VISION_KEY = os.environ.get("GOOGLE_VISION_KEY", "")
 MONGO_URI = os.environ.get("MONGO_URI", "")
-_db = None
 
+# ── MongoDB ──────────────────────────────────────────────────
+_db = None
 def get_db():
     global _db
     if _db is None and MONGO_URI:
-        client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
-        _db = client["etv_dashboard"]["photos"]
+        from pymongo import MongoClient
+        _db = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)["etv_dashboard"]["photos"]
     return _db
 
 def save_record(r):
@@ -42,6 +43,7 @@ def record_exists(pid):
     col = get_db()
     return col.find_one({"id": pid}) is not None if col is not None else False
 
+# ── Series map ───────────────────────────────────────────────
 SERIES_MAP = {
   "A":{"location":"VISHAKAPATNAM","state":"Andhra Pradesh","qty":250},
   "B":{"location":"ANAKAPALLI","state":"Andhra Pradesh","qty":13},
@@ -185,146 +187,332 @@ DESIGNS = ["Aaro_Pranam","Ammoru","Andhal_Rakshasi","Bommarillu","Janaki_Parinay
            "Jhansi","Manasantha_Nuvve","Merupu_Kalalu","Rangula_Ratnam","Sandhya_Ragam",
            "Vasundhara","Veyi_Shubhamulu_Kaluguniku","Yashodha"]
 
-def image_hash(path):
-    with open(path,"rb") as f: return hashlib.sha256(f.read()).hexdigest()
+GPS_KEYWORDS = {
+    "guntur":"GUNTUR","vijayawada":"VIJAYAWADA","visakhapatnam":"VISHAKAPATNAM",
+    "vizag":"VISHAKAPATNAM","nellore":"NELLORE","kakinada":"Kakinada",
+    "rajahmundry":"Rajahmundry","eluru":"ELURU","warangal":"WARANGAL",
+    "karimnagar":"KARIMNAGAR","khammam":"KHAMMAM","nizamabad":"NIZAMABAD",
+    "hyderabad":"Hyderabad","secunderabad":"Secunderabad","tirupati":"TIRUPATHI",
+    "tirupathi":"TIRUPATHI","kurnool":"KURNOOL","kadapa":"KADAPA",
+    "anantapur":"ANANTAPURAM","anantapuram":"ANANTAPURAM","srikakulam":"SRIKAKULAM",
+    "vizianagaram":"Vizianagaram","ongole":"ONGOLE","nalgonda":"NALGONDA",
+    "mahaboobnagar":"MAHABOOBNAGAR","sambasiva":"GUNTUR","narasaraopet":"NARSARAOPET",
+    "tenali":"TENALI","bhimavaram":"BHIMAVARAM","tanuku":"TANUKU","chirala":"CHIRALA",
+    "nandyal":"Nandyal","kadiri":"KADIRI","guntakal":"GUNTAKAL","adoni":"ADONI",
+    "hindupur":"Hindupur","dharmavaram":"Dharmavaram","tadipatri":"Tadipatri",
+    "machilipatnam":"Machilipatnam","gudiwada":"GUDIWADA","kavali":"KAVALI",
+    "ongole":"ONGOLE","markapur":"Markapur","bapatla":"Bapatla",
+    "mangalagiri":"Mangalagiri","tadepalli":"Mangalagiri",
+}
 
-def thumb_b64(path):
+# ── Google Vision OCR ────────────────────────────────────────
+def vision_ocr(image_bytes):
+    """Send image to Google Vision API, return all detected text."""
+    if not GOOGLE_VISION_KEY:
+        return ""
+    try:
+        b64 = base64.b64encode(image_bytes).decode()
+        payload = {
+            "requests": [{
+                "image": {"content": b64},
+                "features": [{"type": "TEXT_DETECTION", "maxResults": 1}]
+            }]
+        }
+        resp = req_lib.post(
+            f"https://vision.googleapis.com/v1/images:annotate?key={GOOGLE_VISION_KEY}",
+            json=payload, timeout=10
+        )
+        data = resp.json()
+        annotations = data.get("responses", [{}])[0].get("textAnnotations", [])
+        return annotations[0].get("description", "") if annotations else ""
+    except Exception as e:
+        print(f"Vision API error: {e}")
+        return ""
+
+def extract_gps_region(image_bytes):
+    """Crop bottom 28% of image — GPS stamp area."""
     try:
         from PIL import Image
-        img = Image.open(path).convert("RGB")
-        img.thumbnail((400,400))
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        w, h = img.size
+        crop = img.crop((0, int(h * 0.72), w, h))
         buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=65)
-        return base64.b64encode(buf.getvalue()).decode()
-    except: return ""
+        crop.save(buf, format="JPEG", quality=85)
+        return buf.getvalue()
+    except:
+        return image_bytes
 
-def process_photo(file_path, filename, reviewer, location, series, f_number, design):
-    """Lightweight processing — no OCR, uses form data from uploader"""
+def extract_sticker_region(image_bytes):
+    """Crop top 72% of image — sticker area."""
+    try:
+        from PIL import Image
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        w, h = img.size
+        crop = img.crop((0, 0, w, int(h * 0.72)))
+        buf = io.BytesIO()
+        crop.save(buf, format="JPEG", quality=85)
+        return buf.getvalue()
+    except:
+        return image_bytes
+
+def detect_location(ocr_text):
+    """Detect city from OCR text using GPS keywords."""
+    text_lower = ocr_text.lower()
+    for keyword, city in GPS_KEYWORDS.items():
+        if keyword in text_lower:
+            return city
+    return None
+
+def detect_series_from_location(location):
+    """Reverse lookup — location name → series code."""
+    if not location:
+        return None
+    loc_upper = location.upper()
+    for series, info in SERIES_MAP.items():
+        if info["location"].upper() == loc_upper:
+            return series
+    return None
+
+def extract_f_number(ocr_text):
+    """Extract F-number pattern like F25, AA7, CQ45 from sticker OCR."""
+    patterns = [
+        r'\b([A-Z]{1,2})\s*(\d{1,4})\b',
+        r'([A-Za-z]{1,2})[-\s]?(\d{1,4})',
+    ]
+    for pat in patterns:
+        m = re.search(pat, ocr_text, re.IGNORECASE)
+        if m:
+            series = m.group(1).upper()
+            number = m.group(2)
+            if series in SERIES_MAP:
+                return series, f"{series}{number}"
+    return None, None
+
+def extract_datetime(ocr_text):
+    """Extract date/time from GPS stamp text."""
+    patterns = [
+        r'(\d{4}[-/]\d{2}[-/]\d{2}[^\n]{0,25}\d{2}:\d{2})',
+        r'(\d{2}[-/]\d{2}[-/]\d{4}[^\n]{0,25}\d{2}:\d{2})',
+        r'(\d{4}-\d{2}-\d{2})',
+    ]
+    for pat in patterns:
+        m = re.search(pat, ocr_text)
+        if m:
+            return m.group(1)
+    return ""
+
+def compress_for_storage(image_bytes, max_size=600):
+    """Compress image to thumbnail for MongoDB storage."""
+    try:
+        from PIL import Image
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        img.thumbnail((max_size, max_size))
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=70)
+        return buf.getvalue()
+    except:
+        return image_bytes[:500000]
+
+def image_hash(data):
+    return hashlib.sha256(data).hexdigest()[:12]
+
+# ── Main photo processor ─────────────────────────────────────
+def process_photo(file_bytes, filename, reviewer="Team"):
+    """
+    Full auto-processing using Google Vision.
+    No manual input required from team.
+    """
     record = {
-        "id": image_hash(file_path)[:12],
+        "id": image_hash(file_bytes),
         "filename": filename,
-        "filepath": str(file_path),
         "reviewer": reviewer,
         "uploaded_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "series": series.upper() if series else None,
-        "location": None, "state": None,
-        "design": design or "—",
-        "f_number": f_number or None,
+        "series": None, "location": None, "state": None,
+        "design": "—", "f_number": None,
         "gps_text": "", "datetime_stamp": "",
         "status": "Manual Check", "issues": [],
-        "image_b64": thumb_b64(file_path)
+        "image_b64": base64.b64encode(compress_for_storage(file_bytes)).decode()
     }
 
-    # Auto-detect location from series
-    s = (series or "").upper()
-    if s and s in SERIES_MAP:
-        record["location"] = SERIES_MAP[s]["location"]
-        record["state"]    = SERIES_MAP[s]["state"]
-    elif location:
-        record["location"] = location
-    else:
-        record["location"] = "Unknown"
-        record["issues"].append("Location not set")
+    # ── Step 1: OCR the GPS stamp (bottom 28%) ────────────────
+    gps_bytes  = extract_gps_region(file_bytes)
+    gps_text   = vision_ocr(gps_bytes)
+    record["gps_text"] = gps_text[:300]
 
+    # Extract datetime from GPS text
+    record["datetime_stamp"] = extract_datetime(gps_text)
+
+    # Detect location from GPS text
+    location = detect_location(gps_text)
+
+    # ── Step 2: OCR the sticker area (top 72%) ────────────────
+    sticker_bytes = extract_sticker_region(file_bytes)
+    sticker_text  = vision_ocr(sticker_bytes)
+
+    # Extract F-number and series from sticker
+    series, f_number = extract_f_number(sticker_text)
+    record["series"]   = series
+    record["f_number"] = f_number
+
+    # If GPS didn't give location, try series lookup
+    if not location and series:
+        info = SERIES_MAP.get(series, {})
+        location = info.get("location")
+
+    record["location"] = location or "Unknown"
+
+    # Get state from series
+    if series and series in SERIES_MAP:
+        record["state"] = SERIES_MAP[series]["state"]
+
+    # ── Step 3: Basic QC ──────────────────────────────────────
+    if not location:
+        record["issues"].append("Location not detected from GPS stamp")
     if not f_number:
-        record["issues"].append("Sticker number not entered")
-    if not design or design == "—":
-        record["issues"].append("Design not selected")
+        record["issues"].append("Sticker number not readable")
+    if not gps_text.strip():
+        record["issues"].append("GPS stamp not found in photo")
 
-    record["status"] = "Manual Check" if record["issues"] else "Approved"
+    # ── Step 4: Auto-approve if clean ────────────────────────
+    if not record["issues"]:
+        record["status"] = "Approved"
+    else:
+        record["status"] = "Manual Check"
+
     return record
 
+# ── Routes ────────────────────────────────────────────────────
 @app.route("/")
 def index():
     static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
     return send_from_directory(static_dir, "index.html")
 
 @app.route("/series_map")
-def series_map():
+def series_map_route():
     return jsonify(SERIES_MAP)
 
 @app.route("/designs")
-def designs():
+def designs_route():
     return jsonify(DESIGNS)
 
 @app.route("/upload", methods=["POST"])
 def upload():
     files    = request.files.getlist("photos")
     reviewer = request.form.get("reviewer", "Team")
-    series   = request.form.get("series", "")
-    f_number = request.form.get("f_number", "")
-    design   = request.form.get("design", "")
-    location = request.form.get("location", "")
-    results  = []
+    # Optional manual overrides (used only if Vision fails)
+    manual_series  = request.form.get("series", "")
+    manual_design  = request.form.get("design", "")
+    results = []
 
     for f in files:
         if not f.filename: continue
         if Path(f.filename).suffix.lower() not in SUPPORTED_EXTS: continue
-        save_path = UPLOAD_FOLDER / f.filename
-        f.save(save_path)
-        pid = image_hash(save_path)[:12]
-        if record_exists(pid):
-            results.append({"filename":f.filename,"status":"Duplicate","id":pid,"issues":["Already uploaded"]})
-            continue
-        rec = process_photo(save_path, f.filename, reviewer, location, series, f_number, design)
-        save_record(rec)
-        results.append({k:v for k,v in rec.items() if k!="image_b64"})
 
-    return jsonify({"processed":len(results),"results":results})
+        file_bytes = f.read()
+        pid = image_hash(file_bytes)
+
+        if record_exists(pid):
+            results.append({"filename": f.filename, "status": "Duplicate",
+                            "id": pid, "issues": ["Already uploaded"]})
+            continue
+
+        rec = process_photo(file_bytes, f.filename, reviewer)
+
+        # Apply manual overrides only if auto-detection failed
+        if manual_series and not rec["series"]:
+            rec["series"] = manual_series.upper()
+            info = SERIES_MAP.get(manual_series.upper(), {})
+            if info:
+                rec["location"] = info["location"]
+                rec["state"]    = info["state"]
+                rec["issues"]   = [i for i in rec["issues"] if "Location" not in i]
+
+        if manual_design:
+            rec["design"] = manual_design
+
+        # Re-evaluate status after overrides
+        if rec["issues"]:
+            rec["status"] = "Manual Check"
+        else:
+            rec["status"] = "Approved"
+
+        save_record(rec)
+        results.append({k: v for k, v in rec.items() if k != "image_b64"})
+
+    return jsonify({"processed": len(results), "results": results})
 
 @app.route("/records")
 def get_records():
-    return jsonify([{k:v for k,v in r.items() if k!="image_b64"} for r in load_records()])
+    return jsonify([{k: v for k, v in r.items() if k != "image_b64"} for r in load_records()])
 
 @app.route("/stats")
 def get_stats():
     records = load_records()
-    by_loc = defaultdict(lambda:{"approved":0,"manual":0,"rejected":0,"total":0})
+    by_loc  = defaultdict(lambda: {"approved": 0, "manual": 0, "rejected": 0, "total": 0})
     for r in records:
-        loc = r.get("location","Unknown")
+        loc = r.get("location", "Unknown")
         by_loc[loc]["total"] += 1
-        s = r.get("status","")
-        if s=="Approved": by_loc[loc]["approved"]+=1
-        elif s=="Manual Check": by_loc[loc]["manual"]+=1
-        elif s=="Rejected": by_loc[loc]["rejected"]+=1
+        s = r.get("status", "")
+        if s == "Approved":      by_loc[loc]["approved"] += 1
+        elif s == "Manual Check": by_loc[loc]["manual"]  += 1
+        elif s == "Rejected":    by_loc[loc]["rejected"] += 1
     return jsonify({
-        "total":len(records),
-        "approved":sum(1 for r in records if r.get("status")=="Approved"),
-        "manual":sum(1 for r in records if r.get("status")=="Manual Check"),
-        "rejected":sum(1 for r in records if r.get("status")=="Rejected"),
-        "duplicate":sum(1 for r in records if r.get("status")=="Duplicate"),
-        "by_location":dict(by_loc)
+        "total":     len(records),
+        "approved":  sum(1 for r in records if r.get("status") == "Approved"),
+        "manual":    sum(1 for r in records if r.get("status") == "Manual Check"),
+        "rejected":  sum(1 for r in records if r.get("status") == "Rejected"),
+        "duplicate": sum(1 for r in records if r.get("status") == "Duplicate"),
+        "by_location": dict(by_loc)
     })
+
+@app.route("/location_progress")
+def location_progress():
+    records = load_records()
+    progress = {}
+    for series, info in SERIES_MAP.items():
+        planned  = info["qty"] * 13
+        received = sum(1 for r in records if r.get("series") == series and r.get("status") != "Duplicate")
+        approved = sum(1 for r in records if r.get("series") == series and r.get("status") == "Approved")
+        progress[series] = {
+            "location": info["location"],
+            "state":    info["state"],
+            "planned":  planned,
+            "received": received,
+            "approved": approved,
+            "percent":  round(received / planned * 100) if planned else 0,
+        }
+    return jsonify(progress)
 
 @app.route("/image/<photo_id>")
 def serve_image(photo_id):
     col = get_db()
     if col:
-        rec = col.find_one({"id":photo_id},{"image_b64":1})
+        rec = col.find_one({"id": photo_id}, {"image_b64": 1})
         if rec and rec.get("image_b64"):
             return send_file(io.BytesIO(base64.b64decode(rec["image_b64"])), mimetype="image/jpeg")
     return "Not found", 404
 
 @app.route("/update", methods=["POST"])
 def update():
-    d = request.json
+    d   = request.json
     col = get_db()
     if col:
-        fields = {k:d[k] for k in ["status","design","f_number","location","series"] if d.get(k)}
-        if fields: col.update_one({"id":d["id"]},{"$set":fields})
-    return jsonify({"ok":True})
+        fields = {k: d[k] for k in ["status", "design", "f_number", "location", "series"] if d.get(k)}
+        if fields:
+            col.update_one({"id": d["id"]}, {"$set": fields})
+    return jsonify({"ok": True})
 
 @app.route("/export_excel")
 def export_excel():
     try:
         import pandas as pd
         records = load_records()
-        df = pd.DataFrame([{k:v for k,v in r.items() if k!="image_b64"} for r in records])
-        out = OUTPUT_FOLDER/"ETV_QC_Report.xlsx"
+        df = pd.DataFrame([{k: v for k, v in r.items() if k != "image_b64"} for r in records])
+        out = OUTPUT_FOLDER / "ETV_QC_Report.xlsx"
         df.to_excel(str(out), index=False)
         return send_file(str(out.resolve()), as_attachment=True, download_name="ETV_QC_Report.xlsx")
     except Exception as e:
-        return jsonify({"error":str(e)}),500
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/export_ppt")
 def export_ppt():
@@ -334,43 +522,64 @@ def export_ppt():
         from pptx.dml.color import RGBColor
         from pptx.enum.text import PP_ALIGN
         records = load_records()
-        prs=Presentation(); prs.slide_width=Inches(13.33); prs.slide_height=Inches(7.5)
-        blank=prs.slide_layouts[6]
-        DARK=RGBColor(0x1A,0x1A,0x2E); ACCENT=RGBColor(0xE9,0x4F,0x37)
-        WHITE=RGBColor(0xFF,0xFF,0xFF); GOLD=RGBColor(0xF5,0xA6,0x23); GREEN=RGBColor(0x27,0xAE,0x60)
-        def t(sl,tx,l,tp,w,h,sz,bold=False,col=WHITE,al=PP_ALIGN.LEFT):
-            tb=sl.shapes.add_textbox(l,tp,w,h); tf=tb.text_frame; tf.word_wrap=True
-            p=tf.paragraphs[0]; p.alignment=al; run=p.add_run(); run.text=str(tx)
-            run.font.size=Pt(sz); run.font.bold=bold; run.font.color.rgb=col; run.font.name="Calibri"
-        s1=prs.slides.add_slide(blank)
-        bg=s1.shapes.add_shape(1,0,0,prs.slide_width,prs.slide_height)
-        bg.fill.solid(); bg.fill.fore_color.rgb=DARK; bg.line.fill.background()
-        t(s1,"ETV Auto Sticker Campaign Report",Inches(0.7),Inches(2.0),Inches(12),Inches(1),38,True,ACCENT,PP_ALIGN.CENTER)
-        t(s1,f"{datetime.now().strftime('%d %B %Y')}  |  {len(records)} photos",Inches(0.7),Inches(3.2),Inches(12),Inches(0.5),16,col=WHITE,al=PP_ALIGN.CENTER)
-        for r in [x for x in records if x.get("status")=="Approved"]:
-            sl=prs.slides.add_slide(blank)
+        prs = Presentation()
+        prs.slide_width  = Inches(13.33)
+        prs.slide_height = Inches(7.5)
+        blank = prs.slide_layouts[6]
+        DARK  = RGBColor(0x1A, 0x1A, 0x2E)
+        ACCENT= RGBColor(0xE9, 0x4F, 0x37)
+        WHITE = RGBColor(0xFF, 0xFF, 0xFF)
+        GOLD  = RGBColor(0xF5, 0xA6, 0x23)
+        GREEN = RGBColor(0x27, 0xAE, 0x60)
+
+        def t(sl, tx, l, tp, w, h, sz, bold=False, col=WHITE, al=PP_ALIGN.LEFT):
+            tb = sl.shapes.add_textbox(l, tp, w, h)
+            tf = tb.text_frame; tf.word_wrap = True
+            p  = tf.paragraphs[0]; p.alignment = al
+            run = p.add_run(); run.text = str(tx)
+            run.font.size = Pt(sz); run.font.bold = bold
+            run.font.color.rgb = col; run.font.name = "Calibri"
+
+        s1 = prs.slides.add_slide(blank)
+        bg = s1.shapes.add_shape(1, 0, 0, prs.slide_width, prs.slide_height)
+        bg.fill.solid(); bg.fill.fore_color.rgb = DARK; bg.line.fill.background()
+        t(s1, "ETV Auto Sticker Campaign Report", Inches(0.7), Inches(2.0), Inches(12), Inches(1), 38, True, ACCENT, PP_ALIGN.CENTER)
+        t(s1, f"{datetime.now().strftime('%d %B %Y')}  |  {len(records)} photos processed",
+          Inches(0.7), Inches(3.2), Inches(12), Inches(0.5), 16, col=WHITE, al=PP_ALIGN.CENTER)
+
+        for r in [x for x in records if x.get("status") == "Approved"]:
+            sl = prs.slides.add_slide(blank)
             if r.get("image_b64"):
-                try: sl.shapes.add_picture(io.BytesIO(base64.b64decode(r["image_b64"])),Inches(0.3),Inches(0.3),Inches(6.5),Inches(6.9))
+                try:
+                    sl.shapes.add_picture(io.BytesIO(base64.b64decode(r["image_b64"])),
+                                         Inches(0.3), Inches(0.3), Inches(6.5), Inches(6.9))
                 except: pass
-            card=sl.shapes.add_shape(1,Inches(7.1),Inches(0.3),Inches(5.9),Inches(6.9))
-            card.fill.solid(); card.fill.fore_color.rgb=DARK; card.line.fill.background()
-            t(sl,"ETV AUTO STICKER",Inches(7.3),Inches(0.5),Inches(5.5),Inches(0.5),14,True,ACCENT)
-            y=1.1
-            for lbl,val in [("Location",r.get("location","—")),("Series / Number",f"{r.get('series','')} — {r.get('f_number','')}"),
-                ("Design",r.get("design","—")),("Reviewer",r.get("reviewer","—")),("Date",r.get("uploaded_at","—"))]:
-                t(sl,lbl,Inches(7.3),Inches(y),Inches(5.5),Inches(0.25),8,True,GOLD)
-                t(sl,str(val),Inches(7.3),Inches(y+0.25),Inches(5.5),Inches(0.4),13,col=WHITE)
-                y+=0.9
-            b=sl.shapes.add_shape(1,Inches(7.3),Inches(6.55),Inches(2.8),Inches(0.45))
-            b.fill.solid(); b.fill.fore_color.rgb=GREEN; b.line.fill.background()
-            t(sl,"APPROVED",Inches(7.3),Inches(6.57),Inches(2.8),Inches(0.4),12,True,WHITE,PP_ALIGN.CENTER)
-        buf=io.BytesIO(); prs.save(buf); buf.seek(0)
-        return send_file(buf,as_attachment=True,download_name="ETV_Campaign_Report.pptx",
+            card = sl.shapes.add_shape(1, Inches(7.1), Inches(0.3), Inches(5.9), Inches(6.9))
+            card.fill.solid(); card.fill.fore_color.rgb = DARK; card.line.fill.background()
+            t(sl, "ETV AUTO STICKER", Inches(7.3), Inches(0.5), Inches(5.5), Inches(0.5), 14, True, ACCENT)
+            y = 1.1
+            for lbl, val in [
+                ("Location",      r.get("location", "—")),
+                ("Series / No.",  f"{r.get('series','')} — {r.get('f_number','')}"),
+                ("Design",        r.get("design", "—")),
+                ("Date / Time",   r.get("datetime_stamp", "—")),
+                ("GPS",           (r.get("gps_text") or "—")[:50]),
+                ("Reviewer",      r.get("reviewer", "—")),
+            ]:
+                t(sl, lbl, Inches(7.3), Inches(y),      Inches(5.5), Inches(0.25), 8,  True,  GOLD)
+                t(sl, str(val), Inches(7.3), Inches(y+0.25), Inches(5.5), Inches(0.4),  13, False, WHITE)
+                y += 0.85
+            b = sl.shapes.add_shape(1, Inches(7.3), Inches(6.55), Inches(2.8), Inches(0.45))
+            b.fill.solid(); b.fill.fore_color.rgb = GREEN; b.line.fill.background()
+            t(sl, "APPROVED", Inches(7.3), Inches(6.57), Inches(2.8), Inches(0.4), 12, True, WHITE, PP_ALIGN.CENTER)
+
+        buf = io.BytesIO(); prs.save(buf); buf.seek(0)
+        return send_file(buf, as_attachment=True, download_name="ETV_Campaign_Report.pptx",
                         mimetype="application/vnd.openxmlformats-officedocument.presentationml.presentation")
     except Exception as e:
-        return jsonify({"error":str(e)}),500
+        return jsonify({"error": str(e)}), 500
 
-if __name__=="__main__":
-    port=int(os.environ.get("PORT",5000))
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
     print(f"\n  ETV Dashboard → http://localhost:{port}\n")
     app.run(debug=False, host="0.0.0.0", port=port)
