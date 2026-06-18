@@ -216,8 +216,15 @@ body{font-family:'Segoe UI',sans-serif;background:#0f1117;color:#e0e0e0;min-heig
     </div>
     <div class="mbody">
       <div>
-        <img class="mimg" id="modal-img" src="" alt="" onclick="toggleZoom(this)"
-             onerror="this.src='';this.style.display='none'">
+        <div id="modal-img-wrap" style="position:relative">
+  <img class="mimg" id="modal-img" src="" alt=""
+       onclick="toggleZoom(this)"
+       onerror="this.style.display='none';document.getElementById('modal-img-fallback').style.display='flex'">
+  <div id="modal-img-fallback" style="display:none;width:100%;height:200px;background:#1e1e30;border-radius:8px;align-items:center;justify-content:center;flex-direction:column;gap:8px">
+    <span style="font-size:12px;color:#888">Preview not loading</span>
+    <a id="modal-img-link" href="#" target="_blank" style="font-size:12px;color:#e94f37;text-decoration:none">🔗 Open full photo in new tab</a>
+  </div>
+</div>
         <div class="gps-text" id="modal-gps"></div>
       </div>
       <div class="mform">
@@ -449,9 +456,15 @@ function openPhoto(id){
   curPhotoId=id;
 
   document.getElementById('modal-title').textContent=r.filename||'Photo';
+  const imgUrl = `/image/${r.id}`;
   const img=document.getElementById('modal-img');
-  img.src=`/image/${r.id}`;
+  img.style.display='block';
+  document.getElementById('modal-img-fallback').style.display='none';
+  img.src=imgUrl;
   img.className='mimg';
+  // Set fallback link
+  const fallbackLink = document.getElementById('modal-img-link');
+  if(fallbackLink) fallbackLink.href = imgUrl;
 
   document.getElementById('modal-gps').textContent=r.gps_text?`📍 ${r.gps_text.substring(0,120)}...`:'';
 
