@@ -216,13 +216,23 @@ body{font-family:'Segoe UI',sans-serif;background:#0f1117;color:#e0e0e0;min-heig
     </div>
     <div class="mbody">
       <div>
-        <div id="modal-img-wrap" style="position:relative">
-  <img class="mimg" id="modal-img" src="" alt=""
-       onclick="toggleZoom(this)"
+        <div id="modal-img-wrap" style="position:relative;overflow:hidden;border-radius:8px;background:#0f1117;cursor:zoom-in" 
+     onmouseenter="showZoomHint()" onmouseleave="hideZoomHint()">
+  <img id="modal-img" src="" alt=""
+       style="width:100%;max-height:420px;object-fit:contain;display:block;transition:transform 0.2s;transform-origin:center center"
        onerror="this.style.display='none';document.getElementById('modal-img-fallback').style.display='flex'">
   <div id="modal-img-fallback" style="display:none;width:100%;height:200px;background:#1e1e30;border-radius:8px;align-items:center;justify-content:center;flex-direction:column;gap:8px">
     <span style="font-size:12px;color:#888">Preview not loading</span>
     <a id="modal-img-link" href="#" target="_blank" style="font-size:12px;color:#e94f37;text-decoration:none">🔗 Open full photo in new tab</a>
+  </div>
+  <div id="zoom-hint" style="display:none;position:absolute;bottom:8px;right:8px;background:rgba(0,0,0,0.7);color:#fff;font-size:10px;padding:4px 8px;border-radius:4px;pointer-events:none">
+    🔍 Click &amp; drag to zoom
+  </div>
+  <div id="zoom-controls" style="position:absolute;top:8px;right:8px;display:flex;gap:4px">
+    <button onclick="zoomImg(1.5)" style="background:rgba(0,0,0,0.7);color:#fff;border:none;border-radius:4px;padding:4px 8px;font-size:14px;cursor:pointer;font-weight:bold" title="Zoom in">+</button>
+    <button onclick="zoomImg(0.67)" style="background:rgba(0,0,0,0.7);color:#fff;border:none;border-radius:4px;padding:4px 8px;font-size:14px;cursor:pointer;font-weight:bold" title="Zoom out">−</button>
+    <button onclick="resetZoom()" style="background:rgba(0,0,0,0.7);color:#fff;border:none;border-radius:4px;padding:4px 8px;font-size:11px;cursor:pointer" title="Reset">↺</button>
+    <a id="modal-img-link" href="#" target="_blank" style="background:rgba(233,79,55,0.8);color:#fff;border:none;border-radius:4px;padding:4px 8px;font-size:11px;cursor:pointer;text-decoration:none" title="Open full size">⛶</a>
   </div>
 </div>
         <div class="gps-text" id="modal-gps"></div>
@@ -461,7 +471,11 @@ function openPhoto(id){
   img.style.display='block';
   document.getElementById('modal-img-fallback').style.display='none';
   img.src=imgUrl;
-  img.className='mimg';
+  // Reset zoom on new photo
+  zoomLevel=1; translate={x:0,y:0};
+  img.style.transform='';
+  const wrap=document.getElementById('modal-img-wrap');
+  if(wrap) wrap.style.cursor='zoom-in';
   // Set fallback link
   const fallbackLink = document.getElementById('modal-img-link');
   if(fallbackLink) fallbackLink.href = imgUrl;
@@ -521,9 +535,70 @@ document.getElementById('modal').addEventListener('click',e=>{
   if(e.target===document.getElementById('modal')) closeModal();
 });
 
-function toggleZoom(img){
-  img.classList.toggle('mimg-full');
+let zoomLevel = 1;
+let isDragging = false;
+let dragStart = {x:0, y:0};
+let translate = {x:0, y:0};
+
+function zoomImg(factor){
+  const img = document.getElementById('modal-img');
+  const wrap = document.getElementById('modal-img-wrap');
+  zoomLevel = Math.min(Math.max(zoomLevel * factor, 1), 8);
+  applyZoom(img, wrap);
 }
+
+function resetZoom(){
+  const img = document.getElementById('modal-img');
+  const wrap = document.getElementById('modal-img-wrap');
+  zoomLevel = 1; translate = {x:0, y:0};
+  applyZoom(img, wrap);
+}
+
+function applyZoom(img, wrap){
+  if(zoomLevel <= 1){ translate = {x:0,y:0}; }
+  img.style.transform = `scale(${zoomLevel}) translate(${translate.x/zoomLevel}px, ${translate.y/zoomLevel}px)`;
+  wrap.style.cursor = zoomLevel > 1 ? 'grab' : 'zoom-in';
+}
+
+function showZoomHint(){ document.getElementById('zoom-hint').style.display='block'; }
+function hideZoomHint(){ document.getElementById('zoom-hint').style.display='none'; }
+
+// Mouse drag to pan when zoomed
+document.addEventListener('mousedown', function(e){
+  const wrap = document.getElementById('modal-img-wrap');
+  if(wrap && wrap.contains(e.target) && zoomLevel > 1){
+    isDragging = true;
+    dragStart = {x: e.clientX - translate.x, y: e.clientY - translate.y};
+    wrap.style.cursor = 'grabbing';
+    e.preventDefault();
+  }
+});
+document.addEventListener('mousemove', function(e){
+  if(!isDragging) return;
+  const img = document.getElementById('modal-img');
+  const wrap = document.getElementById('modal-img-wrap');
+  translate.x = e.clientX - dragStart.x;
+  translate.y = e.clientY - dragStart.y;
+  applyZoom(img, wrap);
+});
+document.addEventListener('mouseup', function(){
+  if(isDragging){
+    isDragging = false;
+    const wrap = document.getElementById('modal-img-wrap');
+    if(wrap) wrap.style.cursor = zoomLevel > 1 ? 'grab' : 'zoom-in';
+  }
+});
+
+// Scroll wheel zoom
+document.addEventListener('wheel', function(e){
+  const wrap = document.getElementById('modal-img-wrap');
+  if(wrap && wrap.contains(e.target)){
+    e.preventDefault();
+    zoomImg(e.deltaY < 0 ? 1.3 : 0.77);
+  }
+}, {passive:false});
+
+function toggleZoom(img){ zoomImg(zoomLevel < 2 ? 2 : 0.5); }
 
 function updateFnPreview(){
   const r = allRecords.find(x=>x.id===curPhotoId);
