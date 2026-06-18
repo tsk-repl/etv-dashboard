@@ -9,7 +9,7 @@ from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
 
-app = Flask(__name__, static_folder='static')
+app = Flask(__name__, static_folder=os.path.join(os.path.dirname(os.path.abspath(__file__)), "static"))
 
 UPLOAD_FOLDER  = Path("uploads")
 OUTPUT_FOLDER  = Path("output")
