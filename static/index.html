@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ETV Auto Sticker QC Dashboard</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', sans-serif; background: #0f1117; color: #e0e0e0; min-height: 100vh; }
+
+  /* Top bar */
+  .topbar { background: #1a1a2e; border-bottom: 2px solid #e94f37; padding: 14px 28px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
+  .topbar-logo { display: flex; align-items: center; gap: 12px; }
+  .topbar-logo .etv { font-size: 22px; font-weight: 800; color: #e94f37; letter-spacing: 2px; }
+  .topbar-logo .title { font-size: 14px; color: #aaa; }
+  .topbar-actions { display: flex; gap: 10px; }
+
+  /* Buttons */
+  .btn { padding: 8px 18px; border-radius: 6px; border: none; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+  .btn-primary { background: #e94f37; color: #fff; }
+  .btn-primary:hover { background: #c73f29; }
+  .btn-outline { background: transparent; border: 1px solid #444; color: #ccc; }
+  .btn-outline:hover { background: #222; border-color: #e94f37; color: #e94f37; }
+  .btn-green { background: #1a7a4a; color: #fff; }
+  .btn-green:hover { background: #145e38; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* Layout */
+  .main { display: grid; grid-template-columns: 300px 1fr; gap: 0; height: calc(100vh - 57px); }
+
+  /* Left panel */
+  .left-panel { background: #161622; border-right: 1px solid #2a2a3a; overflow-y: auto; display: flex; flex-direction: column; }
+  .panel-section { padding: 20px; border-bottom: 1px solid #2a2a3a; }
+  .panel-section h3 { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: #888; margin-bottom: 14px; }
+
+  /* Stats */
+  .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .stat-card { background: #1e1e30; border-radius: 8px; padding: 12px; text-align: center; border: 1px solid #2a2a3a; }
+  .stat-card .num { font-size: 26px; font-weight: 700; }
+  .stat-card .lbl { font-size: 11px; color: #888; margin-top: 2px; }
+  .stat-total .num { color: #f5a623; }
+  .stat-approved .num { color: #27ae60; }
+  .stat-manual .num { color: #f39c12; }
+  .stat-rejected .num { color: #e74c3c; }
+
+  /* Upload zone */
+  .upload-zone { border: 2px dashed #333; border-radius: 10px; padding: 24px 16px; text-align: center; cursor: pointer; transition: all 0.2s; }
+  .upload-zone:hover, .upload-zone.dragover { border-color: #e94f37; background: rgba(233,79,55,0.06); }
+  .upload-zone .icon { font-size: 32px; margin-bottom: 8px; }
+  .upload-zone p { font-size: 13px; color: #888; }
+  .upload-zone strong { color: #e94f37; }
+  #file-input { display: none; }
+
+  .reviewer-input { width: 100%; background: #1e1e30; border: 1px solid #333; border-radius: 6px; padding: 8px 12px; color: #e0e0e0; font-size: 13px; margin-bottom: 12px; }
+  .reviewer-input:focus { outline: none; border-color: #e94f37; }
+
+  /* Progress bar */
+  .progress-wrap { margin-top: 10px; display: none; }
+  .progress-bar { height: 4px; background: #2a2a3a; border-radius: 4px; overflow: hidden; }
+  .progress-fill { height: 100%; background: #e94f37; width: 0%; transition: width 0.3s; }
+  .progress-text { font-size: 11px; color: #888; margin-top: 4px; }
+
+  /* Filter tabs */
+  .filter-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+  .filter-tab { padding: 5px 12px; border-radius: 20px; font-size: 12px; cursor: pointer; border: 1px solid #333; color: #888; background: transparent; transition: all 0.15s; }
+  .filter-tab.active { background: #e94f37; border-color: #e94f37; color: #fff; }
+  .filter-tab:hover:not(.active) { border-color: #e94f37; color: #e94f37; }
+
+  /* Right panel */
+  .right-panel { overflow-y: auto; padding: 20px; }
+
+  /* Photo grid */
+  .photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }
+  .photo-card { background: #161622; border-radius: 10px; border: 1px solid #2a2a3a; overflow: hidden; transition: transform 0.15s, border-color 0.15s; cursor: pointer; }
+  .photo-card:hover { transform: translateY(-2px); border-color: #e94f37; }
+  .photo-card.approved { border-color: #27ae60; }
+  .photo-card.manual { border-color: #f39c12; }
+  .photo-card.rejected { border-color: #e74c3c; }
+  .photo-card.duplicate { border-color: #555; opacity: 0.6; }
+  .photo-img { width: 100%; height: 130px; object-fit: cover; display: block; }
+  .photo-body { padding: 10px; }
+  .photo-loc { font-size: 13px; font-weight: 600; color: #e0e0e0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .photo-meta { font-size: 11px; color: #888; margin-top: 2px; }
+  .photo-status { display: inline-block; margin-top: 6px; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+  .status-Approved { background: rgba(39,174,96,0.15); color: #27ae60; border: 1px solid #27ae60; }
+  .status-Manual { background: rgba(243,156,18,0.15); color: #f39c12; border: 1px solid #f39c12; }
+  .status-Rejected { background: rgba(231,76,60,0.15); color: #e74c3c; border: 1px solid #e74c3c; }
+  .status-Duplicate { background: rgba(100,100,100,0.15); color: #888; border: 1px solid #555; }
+
+  /* Empty state */
+  .empty { text-align: center; padding: 80px 20px; color: #555; }
+  .empty .big-icon { font-size: 60px; margin-bottom: 16px; }
+  .empty h3 { font-size: 18px; color: #777; margin-bottom: 8px; }
+  .empty p { font-size: 14px; }
+
+  /* Modal */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 1000; display: none; align-items: center; justify-content: center; padding: 20px; }
+  .modal-overlay.open { display: flex; }
+  .modal { background: #1a1a2e; border-radius: 14px; border: 1px solid #333; max-width: 900px; width: 100%; max-height: 90vh; overflow-y: auto; }
+  .modal-header { padding: 18px 24px; border-bottom: 1px solid #2a2a3a; display: flex; align-items: center; justify-content: space-between; }
+  .modal-header h2 { font-size: 16px; color: #e94f37; }
+  .modal-close { background: none; border: none; color: #888; font-size: 22px; cursor: pointer; line-height: 1; }
+  .modal-close:hover { color: #fff; }
+  .modal-body { padding: 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .modal-img { width: 100%; border-radius: 8px; object-fit: contain; max-height: 360px; background: #0f1117; }
+  .modal-info table { width: 100%; border-collapse: collapse; }
+  .modal-info td { padding: 7px 0; font-size: 13px; border-bottom: 1px solid #2a2a3a; }
+  .modal-info td:first-child { color: #888; width: 40%; }
+  .modal-info td:last-child { color: #e0e0e0; font-weight: 500; }
+  .modal-actions { padding: 16px 24px; border-top: 1px solid #2a2a3a; display: flex; gap: 10px; flex-wrap: wrap; }
+  .issues-list { margin-top: 10px; }
+  .issue-item { background: rgba(231,76,60,0.1); border: 1px solid rgba(231,76,60,0.3); border-radius: 6px; padding: 6px 10px; font-size: 12px; color: #e74c3c; margin-bottom: 4px; }
+
+  /* Toast */
+  .toast { position: fixed; bottom: 24px; right: 24px; background: #27ae60; color: #fff; padding: 12px 20px; border-radius: 8px; font-size: 14px; font-weight: 600; z-index: 2000; display: none; animation: slideUp 0.3s ease; }
+  @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+  .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .section-header h2 { font-size: 15px; color: #aaa; }
+  .count-badge { background: #2a2a3a; color: #aaa; border-radius: 12px; padding: 2px 10px; font-size: 12px; }
+
+  @media (max-width: 768px) {
+    .main { grid-template-columns: 1fr; }
+    .left-panel { height: auto; }
+    .modal-body { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-logo">
+    <span class="etv">ETV</span>
+    <span class="title">Auto Sticker QC Dashboard</span>
+  </div>
+  <div class="topbar-actions">
+    <button class="btn btn-outline" onclick="exportExcel()">⬇ Excel Report</button>
+    <button class="btn btn-green" onclick="exportPPT()">📊 PPT Report</button>
+  </div>
+</div>
+
+<div class="main">
+  <!-- Left Panel -->
+  <div class="left-panel">
+
+    <div class="panel-section">
+      <h3>Upload Photos</h3>
+      <input type="text" class="reviewer-input" id="reviewer-name" placeholder="Your name (optional)">
+      <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()">
+        <div class="icon">📸</div>
+        <p>Click or drag photos here</p>
+        <p style="margin-top:4px"><strong>Select multiple at once</strong></p>
+      </div>
+      <input type="file" id="file-input" multiple accept="image/*">
+      <div class="progress-wrap" id="progress-wrap">
+        <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+        <div class="progress-text" id="progress-text">Uploading...</div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h3>Summary</h3>
+      <div class="stats-grid">
+        <div class="stat-card stat-total"><div class="num" id="stat-total">0</div><div class="lbl">Total</div></div>
+        <div class="stat-card stat-approved"><div class="num" id="stat-approved">0</div><div class="lbl">Approved</div></div>
+        <div class="stat-card stat-manual"><div class="num" id="stat-manual">0</div><div class="lbl">Review</div></div>
+        <div class="stat-card stat-rejected"><div class="num" id="stat-rejected">0</div><div class="lbl">Rejected</div></div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h3>Filter</h3>
+      <div class="filter-tabs">
+        <button class="filter-tab active" onclick="setFilter('All', this)">All</button>
+        <button class="filter-tab" onclick="setFilter('Approved', this)">✅ Approved</button>
+        <button class="filter-tab" onclick="setFilter('Manual Check', this)">⚠️ Review</button>
+        <button class="filter-tab" onclick="setFilter('Rejected', this)">❌ Rejected</button>
+        <button class="filter-tab" onclick="setFilter('Duplicate', this)">🔁 Duplicate</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Right Panel -->
+  <div class="right-panel">
+    <div class="section-header">
+      <h2>Photos</h2>
+      <span class="count-badge" id="count-badge">0 photos</span>
+    </div>
+    <div id="photo-grid" class="photo-grid">
+      <div class="empty" style="grid-column:1/-1">
+        <div class="big-icon">📁</div>
+        <h3>No photos yet</h3>
+        <p>Upload WhatsApp photos from the left panel</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Detail Modal -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="modal-title">Photo Detail</h2>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div><img class="modal-img" id="modal-img" src="" alt=""></div>
+      <div class="modal-info">
+        <table id="modal-table"></table>
+        <div class="issues-list" id="modal-issues"></div>
+      </div>
+    </div>
+    <div class="modal-actions" id="modal-actions"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let allRecords = [];
+let currentFilter = 'All';
+let currentRecord = null;
+
+const DESIGNS = [
+  "Aaro_Pranam","Ammoru","Andhal_Rakshasi","Bommarillu",
+  "Janaki_Parinayam","Jhansi","Manasantha_Nuvve","Merupu_Kalalu",
+  "Rangula_Ratnam","Sandhya_Ragam","Vasundhara",
+  "Veyi_Shubhamulu_Kaluguniku","Yashodha"
+];
+
+// ── Upload ────────────────────────────────────────────────────
+document.getElementById('file-input').addEventListener('change', function() {
+  if (this.files.length > 0) uploadFiles(this.files);
+});
+
+const zone = document.getElementById('upload-zone');
+zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+zone.addEventListener('drop', e => {
+  e.preventDefault(); zone.classList.remove('dragover');
+  if (e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files);
+});
+
+function uploadFiles(files) {
+  const reviewer = document.getElementById('reviewer-name').value || 'Team';
+  const fd = new FormData();
+  for (const f of files) fd.append('photos', f);
+  fd.append('reviewer', reviewer);
+
+  document.getElementById('progress-wrap').style.display = 'block';
+  document.getElementById('progress-fill').style.width = '20%';
+  document.getElementById('progress-text').textContent = `Processing ${files.length} photo(s)... Please wait`;
+
+  fetch('/upload', { method: 'POST', body: fd })
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById('progress-fill').style.width = '100%';
+      document.getElementById('progress-text').textContent = `Done! ${data.processed} photos processed`;
+      setTimeout(() => { document.getElementById('progress-wrap').style.display = 'none'; }, 3000);
+      loadRecords();
+      showToast(`✅ ${data.processed} photos processed`);
+    })
+    .catch(() => {
+      document.getElementById('progress-text').textContent = 'Upload failed. Check server is running.';
+    });
+}
+
+// ── Records ───────────────────────────────────────────────────
+function loadRecords() {
+  fetch('/records').then(r => r.json()).then(data => {
+    allRecords = data;
+    renderGrid();
+    updateStats();
+  });
+}
+
+function renderGrid() {
+  const grid = document.getElementById('photo-grid');
+  const filtered = currentFilter === 'All' ? allRecords : allRecords.filter(r => r.status === currentFilter);
+  document.getElementById('count-badge').textContent = `${filtered.length} photo${filtered.length !== 1 ? 's' : ''}`;
+
+  if (filtered.length === 0) {
+    grid.innerHTML = `<div class="empty" style="grid-column:1/-1">
+      <div class="big-icon">📭</div>
+      <h3>No photos here</h3>
+      <p>${allRecords.length === 0 ? 'Upload photos from the left panel' : 'No photos match this filter'}</p>
+    </div>`;
+    return;
+  }
+
+  grid.innerHTML = filtered.map(r => {
+    const statusClass = r.status === 'Manual Check' ? 'manual' :
+                        r.status === 'Approved' ? 'approved' :
+                        r.status === 'Rejected' ? 'rejected' : 'duplicate';
+    const statusLabel = r.status === 'Manual Check' ? 'Needs Review' : r.status;
+    const statusCls   = r.status === 'Manual Check' ? 'Manual' : r.status;
+    return `<div class="photo-card ${statusClass}" onclick="openModal('${r.id}')">
+      <img class="photo-img" src="/image/${encodeURIComponent(r.filename)}" alt="" loading="lazy" onerror="this.style.background='#1e1e30';this.alt='No preview'">
+      <div class="photo-body">
+        <div class="photo-loc">${r.location || 'Unknown'}</div>
+        <div class="photo-meta">${r.series || '—'} · ${r.f_number || '—'}</div>
+        <div class="photo-meta">${r.uploaded_at || ''}</div>
+        <span class="photo-status status-${statusCls}">${statusLabel}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function updateStats() {
+  fetch('/stats').then(r => r.json()).then(d => {
+    document.getElementById('stat-total').textContent    = d.total;
+    document.getElementById('stat-approved').textContent = d.approved;
+    document.getElementById('stat-manual').textContent   = d.manual;
+    document.getElementById('stat-rejected').textContent = d.rejected;
+  });
+}
+
+function setFilter(filter, btn) {
+  currentFilter = filter;
+  document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  renderGrid();
+}
+
+// ── Modal ─────────────────────────────────────────────────────
+function openModal(id) {
+  const r = allRecords.find(x => x.id === id);
+  if (!r) return;
+  currentRecord = r;
+  document.getElementById('modal-title').textContent = r.filename;
+  document.getElementById('modal-img').src = `/image/${encodeURIComponent(r.filename)}`;
+
+  const rows = [
+    ['Status',       `<span class="photo-status status-${r.status === 'Manual Check' ? 'Manual' : r.status}">${r.status}</span>`],
+    ['Location',     r.location || '—'],
+    ['State',        r.state || '—'],
+    ['Series',       r.series || '—'],
+    ['Sticker No.',  r.f_number || '—'],
+    ['Design',       r.design || '—'],
+    ['Date / Time',  r.datetime_stamp || '—'],
+    ['GPS',          (r.gps_text || '—').substring(0,80)],
+    ['Blur Score',   r.blur_score === 999 ? '—' : `${r.blur_score} ${r.blur_score < 80 ? '⚠️' : '✅'}`],
+    ['Brightness',   r.brightness === 128 ? '—' : `${r.brightness} ${r.brightness < 50 ? '⚠️' : '✅'}`],
+    ['Reviewer',     r.reviewer || '—'],
+    ['Uploaded',     r.uploaded_at || '—'],
+  ];
+  document.getElementById('modal-table').innerHTML = rows.map(([l,v]) =>
+    `<tr><td>${l}</td><td>${v}</td></tr>`).join('');
+
+  const issues = r.issues || [];
+  document.getElementById('modal-issues').innerHTML = issues.length
+    ? issues.map(i => `<div class="issue-item">⚠ ${i}</div>`).join('')
+    : '<div style="font-size:12px;color:#27ae60;margin-top:8px">✅ No issues detected</div>';
+
+  // Action buttons
+  const designOptions = DESIGNS.map(d => `<option value="${d}" ${r.design===d?'selected':''}>${d.replace(/_/g,' ')}</option>`).join('');
+  document.getElementById('modal-actions').innerHTML = `
+    <select id="modal-design-select" style="background:#1e1e30;border:1px solid #444;color:#ccc;padding:7px 10px;border-radius:6px;font-size:13px;">
+      <option value="">Set Design...</option>${designOptions}
+    </select>
+    <button class="btn btn-primary" onclick="setStatus('Approved')">✅ Approve</button>
+    <button class="btn btn-outline" onclick="setStatus('Manual Check')">⚠️ Keep for Review</button>
+    <button class="btn" style="background:#7b1d1d;color:#fff" onclick="setStatus('Rejected')">❌ Reject</button>
+  `;
+  document.getElementById('modal').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('modal').classList.remove('open');
+  currentRecord = null;
+}
+
+document.getElementById('modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('modal')) closeModal();
+});
+
+function setStatus(status) {
+  if (!currentRecord) return;
+  const design = document.getElementById('modal-design-select')?.value;
+  fetch('/update', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ id: currentRecord.id, status, design: design || undefined })
+  }).then(() => {
+    currentRecord.status = status;
+    if (design) currentRecord.design = design;
+    closeModal();
+    loadRecords();
+    showToast(`Photo marked as ${status}`);
+  });
+}
+
+// ── Exports ───────────────────────────────────────────────────
+function exportExcel() {
+  showToast('Generating Excel report...');
+  window.location.href = '/export_excel';
+}
+function exportPPT() {
+  showToast('Generating PPT report...');
+  window.location.href = '/export_ppt';
+}
+
+// ── Toast ─────────────────────────────────────────────────────
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.display = 'block';
+  setTimeout(() => { t.style.display = 'none'; }, 3000);
+}
+
+// Init
+loadRecords();
+</script>
+</body>
+</html>
