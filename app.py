@@ -1,24 +1,46 @@
 """
-ETV Auto Sticker Dashboard - Flask Backend
-Run: python app.py
-Open: http://localhost:5000
+ETV Auto Sticker Dashboard - Lightweight Version
+No heavy OCR libraries - works on Render free plan
+Team manually confirms location/number when needed
 """
 from flask import Flask, request, jsonify, send_from_directory, send_file
-import os, re, shutil, hashlib, json
+import os, re, hashlib, base64, io
 from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
 
 app = Flask(__name__, static_folder=os.path.join(os.path.dirname(os.path.abspath(__file__)), "static"))
 
-UPLOAD_FOLDER  = Path("uploads")
-OUTPUT_FOLDER  = Path("output")
-MASTERS_FOLDER = Path("../Masters")
-
+UPLOAD_FOLDER = Path("uploads")
+OUTPUT_FOLDER = Path("output")
 UPLOAD_FOLDER.mkdir(exist_ok=True)
 OUTPUT_FOLDER.mkdir(exist_ok=True)
 
 SUPPORTED_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+
+from pymongo import MongoClient
+MONGO_URI = os.environ.get("MONGO_URI", "")
+_db = None
+
+def get_db():
+    global _db
+    if _db is None and MONGO_URI:
+        client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+        _db = client["etv_dashboard"]["photos"]
+    return _db
+
+def save_record(r):
+    col = get_db()
+    if col is not None:
+        col.update_one({"id": r["id"]}, {"$set": r}, upsert=True)
+
+def load_records():
+    col = get_db()
+    return list(col.find({}, {"_id": 0})) if col is not None else []
+
+def record_exists(pid):
+    col = get_db()
+    return col.find_one({"id": pid}) is not None if col is not None else False
 
 SERIES_MAP = {
   "A":{"location":"VISHAKAPATNAM","state":"Andhra Pradesh","qty":250},
@@ -159,119 +181,57 @@ SERIES_MAP = {
   "EF":{"location":"Nandyal","state":"Andhra Pradesh","qty":55},
 }
 
-GPS_KEYWORDS = {
-    "guntur":"GUNTUR","vijayawada":"VIJAYAWADA","visakhapatnam":"VISHAKAPATNAM",
-    "vizag":"VISHAKAPATNAM","nellore":"NELLORE","kakinada":"Kakinada",
-    "rajahmundry":"Rajahmundry","eluru":"ELURU","warangal":"WARANGAL",
-    "karimnagar":"KARIMNAGAR","khammam":"KHAMMAM","nizamabad":"NIZAMABAD",
-    "hyderabad":"Hyderabad","secunderabad":"Secunderabad","tirupati":"TIRUPATHI",
-    "tirupathi":"TIRUPATHI","kurnool":"KURNOOL","kadapa":"KADAPA",
-    "anantapur":"ANANTAPURAM","anantapuram":"ANANTAPURAM","srikakulam":"SRIKAKULAM",
-    "vizianagaram":"Vizianagaram","ongole":"ONGOLE","nalgonda":"NALGONDA",
-    "mahaboobnagar":"MAHABOOBNAGAR",
-}
-
-photo_records = []
-_ocr_reader = None
-
-def get_ocr():
-    global _ocr_reader
-    if _ocr_reader is None:
-        try:
-            import easyocr
-            _ocr_reader = easyocr.Reader(["en"], gpu=False, verbose=False)
-        except: pass
-    return _ocr_reader
+DESIGNS = ["Aaro_Pranam","Ammoru","Andhal_Rakshasi","Bommarillu","Janaki_Parinayam",
+           "Jhansi","Manasantha_Nuvve","Merupu_Kalalu","Rangula_Ratnam","Sandhya_Ragam",
+           "Vasundhara","Veyi_Shubhamulu_Kaluguniku","Yashodha"]
 
 def image_hash(path):
     with open(path,"rb") as f: return hashlib.sha256(f.read()).hexdigest()
 
-def check_blur(path):
+def thumb_b64(path):
     try:
-        import cv2
-        img = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
-        if img is None: return False, 999
-        score = cv2.Laplacian(img, cv2.CV_64F).var()
-        return score < 80, round(score,1)
-    except: return False, 999
-
-def check_brightness(path):
-    try:
-        import cv2
-        img = cv2.imread(str(path), cv2.IMREAD_COLOR)
-        if img is None: return False, 128
-        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-        return float(hsv[:,:,2].mean()) < 50, round(float(hsv[:,:,2].mean()),1)
-    except: return False, 128
-
-def do_ocr(path, region="bottom"):
-    reader = get_ocr()
-    if not reader: return ""
-    try:
-        import numpy as np
-        from PIL import Image, ImageEnhance
+        from PIL import Image
         img = Image.open(path).convert("RGB")
-        w, h = img.size
-        if region == "bottom":
-            crop = img.crop((0, int(h*0.72), w, h))
-        else:
-            crop = img.crop((0, 0, w, int(h*0.72)))
-            crop = ImageEnhance.Contrast(crop).enhance(2.0)
-        results = reader.readtext(np.array(crop), detail=0, paragraph=True)
-        return " ".join(results)
+        img.thumbnail((400,400))
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=65)
+        return base64.b64encode(buf.getvalue()).decode()
     except: return ""
 
-def process_photo(file_path, filename, reviewer=""):
+def process_photo(file_path, filename, reviewer, location, series, f_number, design):
+    """Lightweight processing — no OCR, uses form data from uploader"""
     record = {
-        "id": image_hash(file_path)[:8],
+        "id": image_hash(file_path)[:12],
         "filename": filename,
         "filepath": str(file_path),
         "reviewer": reviewer,
         "uploaded_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "series": None, "location": None, "state": None,
-        "design": "—", "f_number": None,
+        "series": series.upper() if series else None,
+        "location": None, "state": None,
+        "design": design or "—",
+        "f_number": f_number or None,
         "gps_text": "", "datetime_stamp": "",
         "status": "Manual Check", "issues": [],
-        "blur_score": 999, "brightness": 128,
+        "image_b64": thumb_b64(file_path)
     }
 
-    is_blurry, blur = check_blur(file_path)
-    is_dark, brightness = check_brightness(file_path)
-    record["blur_score"] = blur
-    record["brightness"] = brightness
-    if is_blurry: record["issues"].append("Photo is blurry")
-    if is_dark:   record["issues"].append("Photo is too dark")
+    # Auto-detect location from series
+    s = (series or "").upper()
+    if s and s in SERIES_MAP:
+        record["location"] = SERIES_MAP[s]["location"]
+        record["state"]    = SERIES_MAP[s]["state"]
+    elif location:
+        record["location"] = location
+    else:
+        record["location"] = "Unknown"
+        record["issues"].append("Location not set")
 
-    gps = do_ocr(file_path, "bottom")
-    record["gps_text"] = gps[:200]
-    dt_m = re.search(r'(\d{4}[-/]\d{2}[-/]\d{2}[^\n]{0,20}\d{2}:\d{2})', gps)
-    if dt_m: record["datetime_stamp"] = dt_m.group(1)
+    if not f_number:
+        record["issues"].append("Sticker number not entered")
+    if not design or design == "—":
+        record["issues"].append("Design not selected")
 
-    location = None
-    for kw, city in GPS_KEYWORDS.items():
-        if kw in gps.lower(): location = city; break
-
-    sticker = do_ocr(file_path, "top")
-    m = re.search(r'\b([A-Z]{1,2})\s*(\d{1,4})\b', sticker, re.IGNORECASE)
-    if m:
-        series = m.group(1).upper()
-        record["series"] = series
-        record["f_number"] = f"{series}{m.group(2)}"
-        if not location and series in SERIES_MAP:
-            location = SERIES_MAP[series]["location"]
-        if series in SERIES_MAP:
-            record["state"] = SERIES_MAP[series]["state"]
-
-    record["location"] = location or "Unknown"
-    if not location:          record["issues"].append("Location not detected")
-    if not record["f_number"]: record["issues"].append("Sticker number not readable")
-    if not gps.strip():       record["issues"].append("No GPS stamp found")
-
-    critical = sum(1 for i in record["issues"] if "blurry" in i.lower() or "dark" in i.lower())
-    if critical >= 2:    record["status"] = "Rejected"
-    elif record["issues"]: record["status"] = "Manual Check"
-    else:                  record["status"] = "Approved"
-
+    record["status"] = "Manual Check" if record["issues"] else "Approved"
     return record
 
 @app.route("/")
@@ -279,35 +239,48 @@ def index():
     static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
     return send_from_directory(static_dir, "index.html")
 
+@app.route("/series_map")
+def series_map():
+    return jsonify(SERIES_MAP)
+
+@app.route("/designs")
+def designs():
+    return jsonify(DESIGNS)
+
 @app.route("/upload", methods=["POST"])
 def upload():
     files    = request.files.getlist("photos")
     reviewer = request.form.get("reviewer", "Team")
+    series   = request.form.get("series", "")
+    f_number = request.form.get("f_number", "")
+    design   = request.form.get("design", "")
+    location = request.form.get("location", "")
     results  = []
-    seen = {r["id"] for r in photo_records}
+
     for f in files:
         if not f.filename: continue
         if Path(f.filename).suffix.lower() not in SUPPORTED_EXTS: continue
         save_path = UPLOAD_FOLDER / f.filename
         f.save(save_path)
-        h = image_hash(save_path)[:8]
-        if h in seen:
-            results.append({"filename":f.filename,"status":"Duplicate","issues":["Already uploaded"],"id":h})
+        pid = image_hash(save_path)[:12]
+        if record_exists(pid):
+            results.append({"filename":f.filename,"status":"Duplicate","id":pid,"issues":["Already uploaded"]})
             continue
-        rec = process_photo(save_path, f.filename, reviewer)
-        photo_records.append(rec)
-        seen.add(rec["id"])
-        results.append(rec)
+        rec = process_photo(save_path, f.filename, reviewer, location, series, f_number, design)
+        save_record(rec)
+        results.append({k:v for k,v in rec.items() if k!="image_b64"})
+
     return jsonify({"processed":len(results),"results":results})
 
 @app.route("/records")
 def get_records():
-    return jsonify(photo_records)
+    return jsonify([{k:v for k,v in r.items() if k!="image_b64"} for r in load_records()])
 
 @app.route("/stats")
 def get_stats():
+    records = load_records()
     by_loc = defaultdict(lambda:{"approved":0,"manual":0,"rejected":0,"total":0})
-    for r in photo_records:
+    for r in records:
         loc = r.get("location","Unknown")
         by_loc[loc]["total"] += 1
         s = r.get("status","")
@@ -315,35 +288,38 @@ def get_stats():
         elif s=="Manual Check": by_loc[loc]["manual"]+=1
         elif s=="Rejected": by_loc[loc]["rejected"]+=1
     return jsonify({
-        "total":len(photo_records),
-        "approved":sum(1 for r in photo_records if r["status"]=="Approved"),
-        "manual":sum(1 for r in photo_records if r["status"]=="Manual Check"),
-        "rejected":sum(1 for r in photo_records if r["status"]=="Rejected"),
-        "duplicate":sum(1 for r in photo_records if r["status"]=="Duplicate"),
+        "total":len(records),
+        "approved":sum(1 for r in records if r.get("status")=="Approved"),
+        "manual":sum(1 for r in records if r.get("status")=="Manual Check"),
+        "rejected":sum(1 for r in records if r.get("status")=="Rejected"),
+        "duplicate":sum(1 for r in records if r.get("status")=="Duplicate"),
         "by_location":dict(by_loc)
     })
+
+@app.route("/image/<photo_id>")
+def serve_image(photo_id):
+    col = get_db()
+    if col:
+        rec = col.find_one({"id":photo_id},{"image_b64":1})
+        if rec and rec.get("image_b64"):
+            return send_file(io.BytesIO(base64.b64decode(rec["image_b64"])), mimetype="image/jpeg")
+    return "Not found", 404
 
 @app.route("/update", methods=["POST"])
 def update():
     d = request.json
-    for r in photo_records:
-        if r["id"] == d.get("id"):
-            if d.get("status"): r["status"] = d["status"]
-            if d.get("design"): r["design"] = d["design"]
-            if d.get("f_number"): r["f_number"] = d["f_number"]
-            if d.get("location"): r["location"] = d["location"]
-            break
+    col = get_db()
+    if col:
+        fields = {k:d[k] for k in ["status","design","f_number","location","series"] if d.get(k)}
+        if fields: col.update_one({"id":d["id"]},{"$set":fields})
     return jsonify({"ok":True})
-
-@app.route("/image/<filename>")
-def serve_image(filename):
-    return send_from_directory(str(UPLOAD_FOLDER), filename)
 
 @app.route("/export_excel")
 def export_excel():
     try:
         import pandas as pd
-        df = pd.DataFrame(photo_records)
+        records = load_records()
+        df = pd.DataFrame([{k:v for k,v in r.items() if k!="image_b64"} for r in records])
         out = OUTPUT_FOLDER/"ETV_QC_Report.xlsx"
         df.to_excel(str(out), index=False)
         return send_file(str(out.resolve()), as_attachment=True, download_name="ETV_QC_Report.xlsx")
@@ -357,8 +333,8 @@ def export_ppt():
         from pptx.util import Inches, Pt
         from pptx.dml.color import RGBColor
         from pptx.enum.text import PP_ALIGN
-        prs=Presentation()
-        prs.slide_width=Inches(13.33); prs.slide_height=Inches(7.5)
+        records = load_records()
+        prs=Presentation(); prs.slide_width=Inches(13.33); prs.slide_height=Inches(7.5)
         blank=prs.slide_layouts[6]
         DARK=RGBColor(0x1A,0x1A,0x2E); ACCENT=RGBColor(0xE9,0x4F,0x37)
         WHITE=RGBColor(0xFF,0xFF,0xFF); GOLD=RGBColor(0xF5,0xA6,0x23); GREEN=RGBColor(0x27,0xAE,0x60)
@@ -370,33 +346,31 @@ def export_ppt():
         bg=s1.shapes.add_shape(1,0,0,prs.slide_width,prs.slide_height)
         bg.fill.solid(); bg.fill.fore_color.rgb=DARK; bg.line.fill.background()
         t(s1,"ETV Auto Sticker Campaign Report",Inches(0.7),Inches(2.0),Inches(12),Inches(1),38,True,ACCENT,PP_ALIGN.CENTER)
-        t(s1,f"{datetime.now().strftime('%d %B %Y')}  |  {len(photo_records)} photos processed",Inches(0.7),Inches(3.2),Inches(12),Inches(0.5),16,col=WHITE,al=PP_ALIGN.CENTER)
-        for r in [x for x in photo_records if x.get("status")=="Approved"]:
+        t(s1,f"{datetime.now().strftime('%d %B %Y')}  |  {len(records)} photos",Inches(0.7),Inches(3.2),Inches(12),Inches(0.5),16,col=WHITE,al=PP_ALIGN.CENTER)
+        for r in [x for x in records if x.get("status")=="Approved"]:
             sl=prs.slides.add_slide(blank)
-            try: sl.shapes.add_picture(r["filepath"],Inches(0.3),Inches(0.3),Inches(6.5),Inches(6.9))
-            except: pass
+            if r.get("image_b64"):
+                try: sl.shapes.add_picture(io.BytesIO(base64.b64decode(r["image_b64"])),Inches(0.3),Inches(0.3),Inches(6.5),Inches(6.9))
+                except: pass
             card=sl.shapes.add_shape(1,Inches(7.1),Inches(0.3),Inches(5.9),Inches(6.9))
             card.fill.solid(); card.fill.fore_color.rgb=DARK; card.line.fill.background()
             t(sl,"ETV AUTO STICKER",Inches(7.3),Inches(0.5),Inches(5.5),Inches(0.5),14,True,ACCENT)
             y=1.1
-            for lbl,val in [("Location",r.get("location","—")),("Series/Number",f"{r.get('series','')} — {r.get('f_number','')}"),
-                ("Design",r.get("design","—")),("Date/Time",r.get("datetime_stamp","—")),
-                ("Reviewer",r.get("reviewer","—"))]:
+            for lbl,val in [("Location",r.get("location","—")),("Series / Number",f"{r.get('series','')} — {r.get('f_number','')}"),
+                ("Design",r.get("design","—")),("Reviewer",r.get("reviewer","—")),("Date",r.get("uploaded_at","—"))]:
                 t(sl,lbl,Inches(7.3),Inches(y),Inches(5.5),Inches(0.25),8,True,GOLD)
                 t(sl,str(val),Inches(7.3),Inches(y+0.25),Inches(5.5),Inches(0.4),13,col=WHITE)
-                y+=0.82
+                y+=0.9
             b=sl.shapes.add_shape(1,Inches(7.3),Inches(6.55),Inches(2.8),Inches(0.45))
             b.fill.solid(); b.fill.fore_color.rgb=GREEN; b.line.fill.background()
             t(sl,"APPROVED",Inches(7.3),Inches(6.57),Inches(2.8),Inches(0.4),12,True,WHITE,PP_ALIGN.CENTER)
-        out=OUTPUT_FOLDER/"ETV_Campaign_Report.pptx"
-        prs.save(str(out))
-        return send_file(str(out.resolve()),as_attachment=True,download_name="ETV_Campaign_Report.pptx")
+        buf=io.BytesIO(); prs.save(buf); buf.seek(0)
+        return send_file(buf,as_attachment=True,download_name="ETV_Campaign_Report.pptx",
+                        mimetype="application/vnd.openxmlformats-officedocument.presentationml.presentation")
     except Exception as e:
         return jsonify({"error":str(e)}),500
 
 if __name__=="__main__":
-    print("\n"+"="*50)
-    print("  ETV Auto Sticker Dashboard")
-    print("  Open browser → http://localhost:5000")
-    print("="*50+"\n")
-    import os; app.run(debug=False, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    port=int(os.environ.get("PORT",5000))
+    print(f"\n  ETV Dashboard → http://localhost:{port}\n")
+    app.run(debug=False, host="0.0.0.0", port=port)
