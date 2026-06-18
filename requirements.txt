@@ -4,3 +4,4 @@ pillow
 python-pptx
 pandas
 openpyxl
+requests
