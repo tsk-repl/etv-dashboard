@@ -378,17 +378,21 @@ def extract_datetime(ocr_text):
             return m.group(1)
     return ""
 
-def compress_for_storage(image_bytes, max_size=600):
-    """Compress image to thumbnail for MongoDB storage."""
+def compress_for_storage(image_bytes, max_size=1400):
+    """
+    Store high-res image for zoom quality.
+    1400px allows zooming into sticker details clearly.
+    ~300KB per photo, well within MongoDB 16MB document limit.
+    """
     try:
         from PIL import Image
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         img.thumbnail((max_size, max_size))
         buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=70)
+        img.save(buf, format="JPEG", quality=82)
         return buf.getvalue()
     except:
-        return image_bytes[:500000]
+        return image_bytes[:1000000]
 
 def image_hash(data):
     return hashlib.sha256(data).hexdigest()[:12]
