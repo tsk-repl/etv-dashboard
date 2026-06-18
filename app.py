@@ -187,6 +187,33 @@ DESIGNS = ["Aaro_Pranam","Ammoru","Andhal_Rakshasi","Bommarillu","Janaki_Parinay
            "Jhansi","Manasantha_Nuvve","Merupu_Kalalu","Rangula_Ratnam","Sandhya_Ragam",
            "Vasundhara","Veyi_Shubhamulu_Kaluguniku","Yashodha"]
 
+# Telugu + English keywords for each show — Google Vision reads Telugu from sticker
+SHOW_KEYWORDS = {
+    "Aaro_Pranam":                ["ఆరో ప్రాణం", "aaro pranam", "aro pranam", "ప్రాణం"],
+    "Ammoru":                     ["అమ్మోరు", "ammoru"],
+    "Andhal_Rakshasi":            ["అందాల రాక్షసి", "andhal rakshasi", "andala", "రాక్షసి"],
+    "Bommarillu":                 ["బొమ్మరిల్లు", "bommarillu", "బొమ్మరి"],
+    "Janaki_Parinayam":           ["జానకి పరిణయం", "janaki parinayam", "parinayam", "పరిణయం"],
+    "Jhansi":                     ["ఝాన్సీ", "jhansi", "ఝాన్"],
+    "Manasantha_Nuvve":           ["మనసంతా నువ్వే", "manasantha nuvve", "manasanta", "మనసంతా"],
+    "Merupu_Kalalu":              ["మెరుపు కలలు", "merupu kalalu", "మెరుపు"],
+    "Rangula_Ratnam":             ["రంగుల రత్నం", "rangula ratnam", "రంగుల", "రత్నం"],
+    "Sandhya_Ragam":              ["సంధ్యారాగం", "sandhya ragam", "సంధ్యా", "sandya"],
+    "Vasundhara":                 ["వసుంధర", "vasundhara", "వసుంధ"],
+    "Veyi_Shubhamulu_Kaluguniku": ["వేయి శుభాలు", "veyi shubhamulu", "శుభాలు", "kaluguniku", "కలుగు"],
+    "Yashodha":                   ["యశోద", "yashodha", "yashoda", "యశో"],
+}
+
+def detect_design_from_ocr(ocr_text):
+    """Match show name from OCR text — works with Telugu and English."""
+    if not ocr_text:
+        return None
+    for design, keywords in SHOW_KEYWORDS.items():
+        for kw in keywords:
+            if kw.lower() in ocr_text.lower() or kw in ocr_text:
+                return design
+    return None
+
 GPS_KEYWORDS = {
     "guntur":"GUNTUR","vijayawada":"VIJAYAWADA","visakhapatnam":"VISHAKAPATNAM",
     "vizag":"VISHAKAPATNAM","nellore":"NELLORE","kakinada":"Kakinada",
@@ -243,17 +270,45 @@ def extract_gps_region(image_bytes):
         return image_bytes
 
 def extract_sticker_region(image_bytes):
-    """Crop top 72% of image — sticker area."""
+    """
+    Crop precisely to sticker area where F-number is written.
+    F-number is handwritten in a circle on the right side of the sticker,
+    between the show title and timings box — approx x:35-75%, y:17-55%.
+    This excludes the number plate zone entirely.
+    """
     try:
-        from PIL import Image
+        from PIL import Image, ImageEnhance
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         w, h = img.size
-        crop = img.crop((0, 0, w, int(h * 0.72)))
+        # Sticker bounds: x 7-76%, y 17-58%
+        # F-number specifically: right-center of sticker
+        # Crop entire sticker but stop well above number plate
+        crop = img.crop((int(w*0.07), int(h*0.17), int(w*0.76), int(h*0.57)))
+        # Enhance for handwriting detection
+        crop = ImageEnhance.Contrast(crop).enhance(2.5)
+        crop = ImageEnhance.Sharpness(crop).enhance(2.0)
         buf = io.BytesIO()
-        crop.save(buf, format="JPEG", quality=85)
+        crop.save(buf, format="JPEG", quality=92)
         return buf.getvalue()
     except:
         return image_bytes
+
+def extract_number_plate(ocr_text):
+    """
+    Extract Indian vehicle number plate from full-image OCR text.
+    Handles: AP39 TC2515, GNT TR 6782, TS07 EF1234 etc.
+    """
+    STATE_CODES = r'(?:AP|TS|TN|KA|MH|DL|GJ|RJ|UP|MP|WB|OR|HR|PB|HP|JK|BR|JH|CG|AS|KL|GNT)'
+    patterns = [
+        rf'\b({STATE_CODES})\s*(\d{{1,2}})\s*([A-Z]{{1,2}})\s*(\d{{4}})\b',
+        rf'\b(GNT)\s+([A-Z]{{1,2}})\s*(\d{{3,4}})\b',
+    ]
+    for pat in patterns:
+        m = re.search(pat, ocr_text, re.IGNORECASE)
+        if m:
+            groups = [g for g in m.groups() if g]
+            return ' '.join(groups).upper()
+    return None
 
 def detect_location(ocr_text):
     """Detect city from OCR text using GPS keywords."""
@@ -274,19 +329,48 @@ def detect_series_from_location(location):
     return None
 
 def extract_f_number(ocr_text):
-    """Extract F-number pattern like F25, AA7, CQ45 from sticker OCR."""
+    """
+    Extract F-number from sticker OCR.
+    Filters out: number plates (AP39, TS07 etc), large numbers, non-series codes.
+    F-numbers are typically: F1-F250, or series codes like AA5, CQ45 etc.
+    """
+    # Known number plate state codes to EXCLUDE
+    NUMBER_PLATE_CODES = {
+        "AP", "TS", "TN", "KA", "MH", "DL", "GJ", "RJ", "UP", "MP",
+        "WB", "OR", "HR", "PB", "HP", "JK", "BR", "JH", "CG", "AS",
+        "GNT", "HYD"
+    }
+
+    # Find all possible F-number candidates
     patterns = [
         r'\b([A-Z]{1,2})\s*(\d{1,4})\b',
-        r'([A-Za-z]{1,2})[-\s]?(\d{1,4})',
     ]
+
+    candidates = []
     for pat in patterns:
-        m = re.search(pat, ocr_text, re.IGNORECASE)
-        if m:
+        for m in re.finditer(pat, ocr_text, re.IGNORECASE):
             series = m.group(1).upper()
-            number = m.group(2)
+            number = int(m.group(2))
+
+            # Skip number plate codes
+            if series in NUMBER_PLATE_CODES:
+                continue
+
+            # Skip if number is too large (number plates have 4-digit numbers like 2515, 6782)
+            # F-numbers are max ~250
+            if number > 500:
+                continue
+
+            # Must be a valid series from our map
             if series in SERIES_MAP:
-                return series, f"{series}{number}"
-    return None, None
+                candidates.append((series, f"{series}{number}", number))
+
+    if not candidates:
+        return None, None
+
+    # Pick the one with smallest number (most likely to be F1, F2 etc not a plate)
+    candidates.sort(key=lambda x: x[2])
+    return candidates[0][0], candidates[0][1]
 
 def extract_datetime(ocr_text):
     """Extract date/time from GPS stamp text."""
@@ -328,9 +412,9 @@ def process_photo(file_bytes, filename, reviewer="Team"):
         "reviewer": reviewer,
         "uploaded_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "series": None, "location": None, "state": None,
-        "design": "—", "f_number": None,
+        "design": "—", "f_number": None, "auto_plate": None,
         "gps_text": "", "datetime_stamp": "",
-        "status": "Manual Check", "issues": [],
+        "status": "Manual Check", "issues": [], "notes": "",
         "image_b64": base64.b64encode(compress_for_storage(file_bytes)).decode()
     }
 
@@ -345,9 +429,32 @@ def process_photo(file_bytes, filename, reviewer="Team"):
     # Detect location from GPS text
     location = detect_location(gps_text)
 
-    # ── Step 2: OCR the sticker area (top 72%) ────────────────
+    # ── Step 1b: Extract number plate from auto body area ─────
+    # Number plate is in the lower portion of the auto body (y 55-75%)
+    try:
+        from PIL import Image as PILImg
+        img_tmp = PILImg.open(io.BytesIO(file_bytes)).convert("RGB")
+        w_tmp, h_tmp = img_tmp.size
+        plate_region = img_tmp.crop((0, int(h_tmp*0.55), w_tmp, int(h_tmp*0.75)))
+        plate_buf = io.BytesIO()
+        plate_region.save(plate_buf, format="JPEG", quality=90)
+        plate_ocr = vision_ocr(plate_buf.getvalue())
+        auto_plate = extract_number_plate(plate_ocr)
+        # Also try full GPS region (sometimes plate is visible there)
+        if not auto_plate:
+            auto_plate = extract_number_plate(gps_text)
+        record["auto_plate"] = auto_plate
+    except:
+        record["auto_plate"] = None
+
+    # ── Step 2: OCR the sticker area ────────────────────────────
     sticker_bytes = extract_sticker_region(file_bytes)
     sticker_text  = vision_ocr(sticker_bytes)
+
+    # Detect design from show title text on sticker
+    detected_design = detect_design_from_ocr(sticker_text)
+    if detected_design:
+        record["design"] = detected_design
 
     # Extract F-number and series from sticker
     series, f_number = extract_f_number(sticker_text)
@@ -368,10 +475,11 @@ def process_photo(file_bytes, filename, reviewer="Team"):
     # ── Step 3: Basic QC ──────────────────────────────────────
     if not location:
         record["issues"].append("Location not detected from GPS stamp")
-    if not f_number:
-        record["issues"].append("Sticker number not readable")
     if not gps_text.strip():
         record["issues"].append("GPS stamp not found in photo")
+    if not detected_design:
+        record["issues"].append("Design not identified — please select manually")
+    # Note: F-number is entered manually by team, not blocking auto-approve
 
     # ── Step 4: Auto-approve if clean ────────────────────────
     if not record["issues"]:
@@ -497,7 +605,7 @@ def update():
     d   = request.json
     col = get_db()
     if col is not None:
-        fields = {k: d[k] for k in ["status", "design", "f_number", "location", "series"] if d.get(k)}
+        fields = {k: d[k] for k in ["status", "design", "f_number", "location", "series", "auto_plate", "notes"] if d.get(k) is not None and k in d}
         if fields:
             col.update_one({"id": d["id"]}, {"$set": fields})
     return jsonify({"ok": True})
@@ -507,7 +615,15 @@ def export_excel():
     try:
         import pandas as pd
         records = load_records()
-        df = pd.DataFrame([{k: v for k, v in r.items() if k != "image_b64"} for r in records])
+        # Friendly column order for Excel
+        cols_order = ["uploaded_at","reviewer","location","state","series","f_number",
+                      "auto_plate","design","datetime_stamp","status","notes","gps_text","filename","id"]
+        df_raw = [{k: v for k, v in r.items() if k != "image_b64"} for r in records]
+        df = pd.DataFrame(df_raw)
+        # Reorder columns that exist
+        existing = [c for c in cols_order if c in df.columns]
+        rest = [c for c in df.columns if c not in cols_order]
+        df = df[existing + rest]
         out = OUTPUT_FOLDER / "ETV_QC_Report.xlsx"
         df.to_excel(str(out), index=False)
         return send_file(str(out.resolve()), as_attachment=True, download_name="ETV_QC_Report.xlsx")
