@@ -5,412 +5,590 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ETV Auto Sticker QC Dashboard</title>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Segoe UI', sans-serif; background: #0f1117; color: #e0e0e0; min-height: 100vh; }
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',sans-serif;background:#0f1117;color:#e0e0e0;min-height:100vh}
+.topbar{background:#1a1a2e;border-bottom:2px solid #e94f37;padding:10px 20px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.etv{font-size:20px;font-weight:800;color:#e94f37;letter-spacing:2px}
+.title{font-size:12px;color:#aaa;margin-left:10px}
+.topbar-right{display:flex;gap:8px;align-items:center}
+.btn{padding:6px 14px;border-radius:6px;border:none;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s}
+.btn-red{background:#e94f37;color:#fff}.btn-red:hover{background:#c73f29}
+.btn-outline{background:transparent;border:1px solid #444;color:#ccc}.btn-outline:hover{border-color:#e94f37;color:#e94f37}
+.btn-green{background:#1a7a4a;color:#fff}.btn-green:hover{background:#145e38}
+.btn-blue{background:#185FA5;color:#fff}
 
-  /* Top bar */
-  .topbar { background: #1a1a2e; border-bottom: 2px solid #e94f37; padding: 14px 28px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
-  .topbar-logo { display: flex; align-items: center; gap: 12px; }
-  .topbar-logo .etv { font-size: 22px; font-weight: 800; color: #e94f37; letter-spacing: 2px; }
-  .topbar-logo .title { font-size: 14px; color: #aaa; }
-  .topbar-actions { display: flex; gap: 10px; }
+/* Layout */
+.layout{display:grid;grid-template-columns:260px 1fr;height:calc(100vh - 49px)}
+.sidebar{background:#161622;border-right:1px solid #2a2a3a;overflow-y:auto;display:flex;flex-direction:column}
+.content{overflow-y:auto;display:flex;flex-direction:column}
 
-  /* Buttons */
-  .btn { padding: 8px 18px; border-radius: 6px; border: none; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
-  .btn-primary { background: #e94f37; color: #fff; }
-  .btn-primary:hover { background: #c73f29; }
-  .btn-outline { background: transparent; border: 1px solid #444; color: #ccc; }
-  .btn-outline:hover { background: #222; border-color: #e94f37; color: #e94f37; }
-  .btn-green { background: #1a7a4a; color: #fff; }
-  .btn-green:hover { background: #145e38; }
-  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+/* Sidebar sections */
+.sb-sec{padding:14px;border-bottom:1px solid #2a2a3a}
+.sb-label{font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:#666;margin-bottom:10px}
+.inp{width:100%;background:#1e1e30;border:1px solid #333;border-radius:6px;padding:7px 10px;color:#e0e0e0;font-size:12px;margin-bottom:6px}
+.inp:focus{outline:none;border-color:#e94f37}
+.upload-zone{border:2px dashed #333;border-radius:8px;padding:18px 10px;text-align:center;cursor:pointer;transition:all .2s}
+.upload-zone:hover,.upload-zone.over{border-color:#e94f37;background:rgba(233,79,55,.06)}
+.upload-zone .ui{font-size:26px;margin-bottom:5px}
+.upload-zone p{font-size:11px;color:#888}
+.upload-zone strong{color:#e94f37;font-size:12px}
+#file-input{display:none}
+.prog-wrap{display:none;margin-top:8px}
+.prog-bar{height:4px;background:#2a2a3a;border-radius:4px;overflow:hidden}
+.prog-fill{height:100%;background:#e94f37;width:0%;transition:width .3s}
+.prog-text{font-size:10px;color:#aaa;margin-top:3px;text-align:center}
 
-  /* Layout */
-  .main { display: grid; grid-template-columns: 300px 1fr; gap: 0; height: calc(100vh - 57px); }
+/* Stats */
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.stat{background:#1e1e30;border-radius:7px;padding:9px;text-align:center;border:1px solid #2a2a3a}
+.stat .n{font-size:22px;font-weight:700}
+.stat .l{font-size:9px;color:#888;margin-top:1px}
+.s1 .n{color:#f5a623}.s2 .n{color:#27ae60}.s3 .n{color:#f39c12}.s4 .n{color:#e74c3c}
 
-  /* Left panel */
-  .left-panel { background: #161622; border-right: 1px solid #2a2a3a; overflow-y: auto; display: flex; flex-direction: column; }
-  .panel-section { padding: 20px; border-bottom: 1px solid #2a2a3a; }
-  .panel-section h3 { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: #888; margin-bottom: 14px; }
+/* Filter tabs */
+.ftabs{display:flex;gap:3px;flex-wrap:wrap}
+.ftab{padding:4px 9px;border-radius:14px;font-size:10px;cursor:pointer;border:1px solid #333;color:#888;background:transparent}
+.ftab.on{background:#e94f37;border-color:#e94f37;color:#fff}
+.ftab:hover:not(.on){border-color:#e94f37;color:#e94f37}
 
-  /* Stats */
-  .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-  .stat-card { background: #1e1e30; border-radius: 8px; padding: 12px; text-align: center; border: 1px solid #2a2a3a; }
-  .stat-card .num { font-size: 26px; font-weight: 700; }
-  .stat-card .lbl { font-size: 11px; color: #888; margin-top: 2px; }
-  .stat-total .num { color: #f5a623; }
-  .stat-approved .num { color: #27ae60; }
-  .stat-manual .num { color: #f39c12; }
-  .stat-rejected .num { color: #e74c3c; }
+/* Location folders */
+.loc-folders{padding:14px}
+.loc-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.loc-header h2{font-size:13px;color:#aaa;font-weight:400}
+.cnt-badge{background:#2a2a3a;color:#aaa;border-radius:8px;padding:2px 8px;font-size:10px}
+.folder-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}
+.folder-card{background:#161622;border:0.5px solid #2a2a3a;border-radius:10px;padding:14px;cursor:pointer;transition:all .15s;text-align:center}
+.folder-card:hover{border-color:#e94f37;transform:translateY(-1px)}
+.folder-card.selected{border-color:#e94f37;background:#1e0a08}
+.folder-icon{font-size:28px;margin-bottom:6px}
+.folder-name{font-size:12px;font-weight:600;color:#e0e0e0;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.folder-count{font-size:10px;color:#888}
+.folder-prog{height:3px;background:#2a2a3a;border-radius:2px;margin-top:6px;overflow:hidden}
+.folder-prog-fill{height:100%;border-radius:2px;transition:width .3s}
 
-  /* Upload zone */
-  .upload-zone { border: 2px dashed #333; border-radius: 10px; padding: 24px 16px; text-align: center; cursor: pointer; transition: all 0.2s; }
-  .upload-zone:hover, .upload-zone.dragover { border-color: #e94f37; background: rgba(233,79,55,0.06); }
-  .upload-zone .icon { font-size: 32px; margin-bottom: 8px; }
-  .upload-zone p { font-size: 13px; color: #888; }
-  .upload-zone strong { color: #e94f37; }
-  #file-input { display: none; }
+/* Photo grid */
+.photo-section{flex:1;padding:14px}
+.photos-header{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.photos-header h2{font-size:13px;color:#e94f37;font-weight:500}
+.back-btn{background:transparent;border:1px solid #444;color:#aaa;padding:4px 10px;border-radius:5px;font-size:11px;cursor:pointer}
+.back-btn:hover{border-color:#e94f37;color:#e94f37}
+.pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(175px,1fr));gap:10px}
+.pcard{background:#161622;border-radius:9px;border:1px solid #2a2a3a;overflow:hidden;cursor:pointer;transition:all .15s}
+.pcard:hover{transform:translateY(-2px);border-color:#e94f37}
+.pcard.done{border-color:#27ae60}
+.pcard.pending{border-color:#f39c12}
+.pcard.rejected{border-color:#e74c3c}
+.pimg{width:100%;height:110px;object-fit:cover;display:block;background:#1e1e30}
+.pbody{padding:8px}
+.pnum{font-size:12px;font-weight:600;color:#e94f37}
+.pmeta{font-size:10px;color:#888;margin-top:1px}
+.pstatus{display:inline-block;margin-top:4px;padding:1px 6px;border-radius:8px;font-size:9px;font-weight:700;text-transform:uppercase}
+.ps-done{background:rgba(39,174,96,.15);color:#27ae60;border:1px solid #27ae60}
+.ps-pending{background:rgba(243,156,18,.15);color:#f39c12;border:1px solid #f39c12}
+.ps-rejected{background:rgba(231,76,60,.15);color:#e74c3c;border:1px solid #e74c3c}
 
-  .reviewer-input { width: 100%; background: #1e1e30; border: 1px solid #333; border-radius: 6px; padding: 8px 12px; color: #e0e0e0; font-size: 13px; margin-bottom: 12px; }
-  .reviewer-input:focus { outline: none; border-color: #e94f37; }
+/* Empty */
+.empty{text-align:center;padding:50px 20px;color:#555;grid-column:1/-1}
+.empty .ei{font-size:40px;margin-bottom:10px}
 
-  /* Progress bar */
-  .progress-wrap { margin-top: 10px; display: none; }
-  .progress-bar { height: 4px; background: #2a2a3a; border-radius: 4px; overflow: hidden; }
-  .progress-fill { height: 100%; background: #e94f37; width: 0%; transition: width 0.3s; }
-  .progress-text { font-size: 11px; color: #888; margin-top: 4px; }
+/* Modal */
+.mover{position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:1000;display:none;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto}
+.mover.open{display:flex}
+.modal{background:#1a1a2e;border-radius:12px;border:1px solid #333;width:100%;max-width:900px;margin:auto}
+.mhead{padding:14px 18px;border-bottom:1px solid #2a2a3a;display:flex;align-items:center;justify-content:space-between}
+.mhead-title{font-size:13px;color:#e94f37;flex:1;margin-right:10px;word-break:break-all}
+.mclose{background:none;border:none;color:#888;font-size:20px;cursor:pointer;padding:0 4px}
+.mclose:hover{color:#fff}
+.mbody{padding:18px;display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.mimg{width:100%;border-radius:8px;max-height:400px;object-fit:contain;background:#0f1117;cursor:zoom-in}
+.mimg-full{max-height:90vh;cursor:zoom-out}
+.mform{display:flex;flex-direction:column;gap:10px}
+.mform-label{font-size:10px;color:#888;margin-bottom:3px;text-transform:uppercase;letter-spacing:.5px}
+.mform-row{display:flex;gap:8px}
+.mform-row .inp{margin-bottom:0;flex:1}
+.info-box{background:#1e1e30;border-radius:6px;padding:10px 12px;font-size:11px;line-height:1.8;color:#aaa}
+.info-box strong{color:#e0e0e0}
+.gps-text{font-size:10px;color:#666;margin-top:4px;line-height:1.4}
+.mfoot{padding:12px 18px;border-top:1px solid #2a2a3a;display:flex;gap:8px;flex-wrap:wrap}
+.nav-btns{display:flex;gap:6px;margin-left:auto}
 
-  /* Filter tabs */
-  .filter-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
-  .filter-tab { padding: 5px 12px; border-radius: 20px; font-size: 12px; cursor: pointer; border: 1px solid #333; color: #888; background: transparent; transition: all 0.15s; }
-  .filter-tab.active { background: #e94f37; border-color: #e94f37; color: #fff; }
-  .filter-tab:hover:not(.active) { border-color: #e94f37; color: #e94f37; }
+/* Toast */
+.toast{position:fixed;bottom:18px;right:18px;background:#27ae60;color:#fff;padding:9px 16px;border-radius:7px;font-size:12px;font-weight:600;z-index:2000;display:none}
 
-  /* Right panel */
-  .right-panel { overflow-y: auto; padding: 20px; }
-
-  /* Photo grid */
-  .photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }
-  .photo-card { background: #161622; border-radius: 10px; border: 1px solid #2a2a3a; overflow: hidden; transition: transform 0.15s, border-color 0.15s; cursor: pointer; }
-  .photo-card:hover { transform: translateY(-2px); border-color: #e94f37; }
-  .photo-card.approved { border-color: #27ae60; }
-  .photo-card.manual { border-color: #f39c12; }
-  .photo-card.rejected { border-color: #e74c3c; }
-  .photo-card.duplicate { border-color: #555; opacity: 0.6; }
-  .photo-img { width: 100%; height: 130px; object-fit: cover; display: block; }
-  .photo-body { padding: 10px; }
-  .photo-loc { font-size: 13px; font-weight: 600; color: #e0e0e0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .photo-meta { font-size: 11px; color: #888; margin-top: 2px; }
-  .photo-status { display: inline-block; margin-top: 6px; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
-  .status-Approved { background: rgba(39,174,96,0.15); color: #27ae60; border: 1px solid #27ae60; }
-  .status-Manual { background: rgba(243,156,18,0.15); color: #f39c12; border: 1px solid #f39c12; }
-  .status-Rejected { background: rgba(231,76,60,0.15); color: #e74c3c; border: 1px solid #e74c3c; }
-  .status-Duplicate { background: rgba(100,100,100,0.15); color: #888; border: 1px solid #555; }
-
-  /* Empty state */
-  .empty { text-align: center; padding: 80px 20px; color: #555; }
-  .empty .big-icon { font-size: 60px; margin-bottom: 16px; }
-  .empty h3 { font-size: 18px; color: #777; margin-bottom: 8px; }
-  .empty p { font-size: 14px; }
-
-  /* Modal */
-  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 1000; display: none; align-items: center; justify-content: center; padding: 20px; }
-  .modal-overlay.open { display: flex; }
-  .modal { background: #1a1a2e; border-radius: 14px; border: 1px solid #333; max-width: 900px; width: 100%; max-height: 90vh; overflow-y: auto; }
-  .modal-header { padding: 18px 24px; border-bottom: 1px solid #2a2a3a; display: flex; align-items: center; justify-content: space-between; }
-  .modal-header h2 { font-size: 16px; color: #e94f37; }
-  .modal-close { background: none; border: none; color: #888; font-size: 22px; cursor: pointer; line-height: 1; }
-  .modal-close:hover { color: #fff; }
-  .modal-body { padding: 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
-  .modal-img { width: 100%; border-radius: 8px; object-fit: contain; max-height: 360px; background: #0f1117; }
-  .modal-info table { width: 100%; border-collapse: collapse; }
-  .modal-info td { padding: 7px 0; font-size: 13px; border-bottom: 1px solid #2a2a3a; }
-  .modal-info td:first-child { color: #888; width: 40%; }
-  .modal-info td:last-child { color: #e0e0e0; font-weight: 500; }
-  .modal-actions { padding: 16px 24px; border-top: 1px solid #2a2a3a; display: flex; gap: 10px; flex-wrap: wrap; }
-  .issues-list { margin-top: 10px; }
-  .issue-item { background: rgba(231,76,60,0.1); border: 1px solid rgba(231,76,60,0.3); border-radius: 6px; padding: 6px 10px; font-size: 12px; color: #e74c3c; margin-bottom: 4px; }
-
-  /* Toast */
-  .toast { position: fixed; bottom: 24px; right: 24px; background: #27ae60; color: #fff; padding: 12px 20px; border-radius: 8px; font-size: 14px; font-weight: 600; z-index: 2000; display: none; animation: slideUp 0.3s ease; }
-  @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-
-  .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-  .section-header h2 { font-size: 15px; color: #aaa; }
-  .count-badge { background: #2a2a3a; color: #aaa; border-radius: 12px; padding: 2px 10px; font-size: 12px; }
-
-  @media (max-width: 768px) {
-    .main { grid-template-columns: 1fr; }
-    .left-panel { height: auto; }
-    .modal-body { grid-template-columns: 1fr; }
-  }
+@media(max-width:700px){
+  .layout{grid-template-columns:1fr}
+  .mbody{grid-template-columns:1fr}
+  .sidebar{height:auto;max-height:50vh}
+}
 </style>
 </head>
 <body>
 
 <div class="topbar">
-  <div class="topbar-logo">
+  <div style="display:flex;align-items:center">
     <span class="etv">ETV</span>
     <span class="title">Auto Sticker QC Dashboard</span>
   </div>
-  <div class="topbar-actions">
-    <button class="btn btn-outline" onclick="exportExcel()">⬇ Excel Report</button>
-    <button class="btn btn-green" onclick="exportPPT()">📊 PPT Report</button>
+  <div class="topbar-right">
+    <span id="top-loc" style="font-size:11px;color:#888"></span>
+    <button class="btn btn-outline" onclick="exportExcel()">⬇ Excel</button>
+    <button class="btn btn-green" onclick="exportPPT()">📊 PPT</button>
   </div>
 </div>
 
-<div class="main">
-  <!-- Left Panel -->
-  <div class="left-panel">
-
-    <div class="panel-section">
-      <h3>Upload Photos</h3>
-      <input type="text" class="reviewer-input" id="reviewer-name" placeholder="Your name (optional)">
-      <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()">
-        <div class="icon">📸</div>
-        <p>Click or drag photos here</p>
-        <p style="margin-top:4px"><strong>Select multiple at once</strong></p>
+<div class="layout">
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="sb-sec">
+      <div class="sb-label">Upload Photos</div>
+      <input class="inp" id="reviewer" placeholder="Your name">
+      <div class="upload-zone" id="uz" onclick="document.getElementById('file-input').click()">
+        <div class="ui">📸</div>
+        <strong>Click or drag photos here</strong>
+        <p style="margin-top:3px">Select all at once — any location</p>
+        <p style="font-size:10px;color:#555;margin-top:2px">GPS auto-detects location</p>
       </div>
       <input type="file" id="file-input" multiple accept="image/*">
-      <div class="progress-wrap" id="progress-wrap">
-        <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
-        <div class="progress-text" id="progress-text">Uploading...</div>
+      <div class="prog-wrap" id="pw">
+        <div class="prog-bar"><div class="prog-fill" id="pf"></div></div>
+        <div class="prog-text" id="pt">Uploading...</div>
       </div>
     </div>
 
-    <div class="panel-section">
-      <h3>Summary</h3>
-      <div class="stats-grid">
-        <div class="stat-card stat-total"><div class="num" id="stat-total">0</div><div class="lbl">Total</div></div>
-        <div class="stat-card stat-approved"><div class="num" id="stat-approved">0</div><div class="lbl">Approved</div></div>
-        <div class="stat-card stat-manual"><div class="num" id="stat-manual">0</div><div class="lbl">Review</div></div>
-        <div class="stat-card stat-rejected"><div class="num" id="stat-rejected">0</div><div class="lbl">Rejected</div></div>
+    <div class="sb-sec">
+      <div class="sb-label">Summary</div>
+      <div class="stats">
+        <div class="stat s1"><div class="n" id="st1">0</div><div class="l">Total</div></div>
+        <div class="stat s2"><div class="n" id="st2">0</div><div class="l">Approved</div></div>
+        <div class="stat s3"><div class="n" id="st3">0</div><div class="l">Pending</div></div>
+        <div class="stat s4"><div class="n" id="st4">0</div><div class="l">Rejected</div></div>
       </div>
     </div>
 
-    <div class="panel-section">
-      <h3>Filter</h3>
-      <div class="filter-tabs">
-        <button class="filter-tab active" onclick="setFilter('All', this)">All</button>
-        <button class="filter-tab" onclick="setFilter('Approved', this)">✅ Approved</button>
-        <button class="filter-tab" onclick="setFilter('Manual Check', this)">⚠️ Review</button>
-        <button class="filter-tab" onclick="setFilter('Rejected', this)">❌ Rejected</button>
-        <button class="filter-tab" onclick="setFilter('Duplicate', this)">🔁 Duplicate</button>
+    <div class="sb-sec">
+      <div class="sb-label">Filter</div>
+      <div class="ftabs">
+        <button class="ftab on" onclick="setFilter('All',this)">All</button>
+        <button class="ftab" onclick="setFilter('Approved',this)">✅ Done</button>
+        <button class="ftab" onclick="setFilter('Manual Check',this)">⏳ Pending</button>
+        <button class="ftab" onclick="setFilter('Rejected',this)">❌ Rejected</button>
       </div>
     </div>
-
   </div>
 
-  <!-- Right Panel -->
-  <div class="right-panel">
-    <div class="section-header">
-      <h2>Photos</h2>
-      <span class="count-badge" id="count-badge">0 photos</span>
-    </div>
-    <div id="photo-grid" class="photo-grid">
-      <div class="empty" style="grid-column:1/-1">
-        <div class="big-icon">📁</div>
-        <h3>No photos yet</h3>
-        <p>Upload WhatsApp photos from the left panel</p>
+  <!-- MAIN CONTENT -->
+  <div class="content">
+
+    <!-- LOCATION FOLDERS VIEW -->
+    <div id="view-folders" class="loc-folders">
+      <div class="loc-header">
+        <h2>📂 Locations — click to open</h2>
+        <span class="cnt-badge" id="folder-cnt">0 locations</span>
+      </div>
+      <div class="folder-grid" id="folder-grid">
+        <div class="empty" style="grid-column:1/-1">
+          <div class="ei">📭</div>
+          <p style="color:#666">Upload photos — they will appear here sorted by location</p>
+        </div>
       </div>
     </div>
+
+    <!-- PHOTOS IN LOCATION VIEW -->
+    <div id="view-photos" style="display:none" class="photo-section">
+      <div class="photos-header">
+        <button class="back-btn" onclick="backToFolders()">← All Locations</button>
+        <h2 id="cur-loc-title">GUNTUR</h2>
+        <span class="cnt-badge" id="photo-cnt">0 photos</span>
+        <span style="font-size:11px;color:#888" id="loc-progress-text"></span>
+      </div>
+      <div class="pgrid" id="photo-grid"></div>
+    </div>
+
   </div>
 </div>
 
-<!-- Detail Modal -->
-<div class="modal-overlay" id="modal">
+<!-- PHOTO DETAIL MODAL -->
+<div class="mover" id="modal">
   <div class="modal">
-    <div class="modal-header">
-      <h2 id="modal-title">Photo Detail</h2>
-      <button class="modal-close" onclick="closeModal()">×</button>
+    <div class="mhead">
+      <div class="mhead-title" id="modal-title">Photo</div>
+      <button class="mclose" onclick="closeModal()">×</button>
     </div>
-    <div class="modal-body">
-      <div><img class="modal-img" id="modal-img" src="" alt=""></div>
-      <div class="modal-info">
-        <table id="modal-table"></table>
-        <div class="issues-list" id="modal-issues"></div>
+    <div class="mbody">
+      <div>
+        <img class="mimg" id="modal-img" src="" alt="" onclick="toggleZoom(this)"
+             onerror="this.src='';this.style.display='none'">
+        <div class="gps-text" id="modal-gps"></div>
+      </div>
+      <div class="mform">
+        <div class="info-box" id="modal-info"></div>
+
+        <div>
+          <div class="mform-label">Auto Number Plate <span style="color:#27ae60;font-size:10px">(auto-detected)</span></div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <input class="inp" id="inp-plate" placeholder="Reading from photo..." style="margin:0;flex:1">
+            <span id="plate-badge" style="font-size:10px;color:#888"></span>
+          </div>
+        </div>
+
+        <div>
+          <div class="mform-label">Sticker Number — type just the number</div>
+          <div class="mform-row" style="align-items:center;gap:0">
+            <div id="series-prefix" style="background:#2a2a3a;border:1px solid #444;border-right:none;border-radius:6px 0 0 6px;padding:7px 10px;font-size:16px;font-weight:700;color:#e94f37;white-space:nowrap;min-width:40px;text-align:center">F</div>
+            <input class="inp" id="inp-fnumber" placeholder="1" style="font-size:18px;font-weight:700;color:#e94f37;border-radius:0 6px 6px 0;margin:0;text-align:center;width:80px" type="number" min="1" max="999">
+            <div id="fnumber-preview" style="margin-left:8px;font-size:13px;color:#888"></div>
+          </div>
+        </div>
+
+        <div>
+          <div class="mform-label">
+            Design
+            <span id="design-badge" style="font-size:10px;margin-left:6px;"></span>
+          </div>
+          <select class="inp" id="inp-design">
+            <option value="">— Select design —</option>
+          </select>
+        </div>
+
+        <div>
+          <div class="mform-label">QC Notes (optional)</div>
+          <input class="inp" id="inp-notes" placeholder="e.g. sticker torn, bad angle...">
+        </div>
       </div>
     </div>
-    <div class="modal-actions" id="modal-actions"></div>
+    <div class="mfoot">
+      <button class="btn btn-green" onclick="saveAndApprove()">✅ Approve</button>
+      <button class="btn btn-outline" onclick="saveAndPending()">⏳ Keep Pending</button>
+      <button class="btn" style="background:#7b1d1d;color:#fff" onclick="saveAndReject()">❌ Reject</button>
+      <div class="nav-btns">
+        <button class="btn btn-outline" onclick="navPhoto(-1)">◀ Prev</button>
+        <button class="btn btn-outline" onclick="navPhoto(1)">Next ▶</button>
+      </div>
+    </div>
   </div>
 </div>
 
 <div class="toast" id="toast"></div>
 
 <script>
-let allRecords = [];
-let currentFilter = 'All';
-let currentRecord = null;
+let allRecords=[], curFilter='All', curLoc=null, curPhotoId=null;
+let SERIES_MAP={}, DESIGNS=[];
 
-const DESIGNS = [
-  "Aaro_Pranam","Ammoru","Andhal_Rakshasi","Bommarillu",
-  "Janaki_Parinayam","Jhansi","Manasantha_Nuvve","Merupu_Kalalu",
-  "Rangula_Ratnam","Sandhya_Ragam","Vasundhara",
-  "Veyi_Shubhamulu_Kaluguniku","Yashodha"
-];
-
-// ── Upload ────────────────────────────────────────────────────
-document.getElementById('file-input').addEventListener('change', function() {
-  if (this.files.length > 0) uploadFiles(this.files);
-});
-
-const zone = document.getElementById('upload-zone');
-zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
-zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
-zone.addEventListener('drop', e => {
-  e.preventDefault(); zone.classList.remove('dragover');
-  if (e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files);
-});
-
-function uploadFiles(files) {
-  const reviewer = document.getElementById('reviewer-name').value || 'Team';
-  const fd = new FormData();
-  for (const f of files) fd.append('photos', f);
-  fd.append('reviewer', reviewer);
-
-  document.getElementById('progress-wrap').style.display = 'block';
-  document.getElementById('progress-fill').style.width = '20%';
-  document.getElementById('progress-text').textContent = `Processing ${files.length} photo(s)... Please wait`;
-
-  fetch('/upload', { method: 'POST', body: fd })
-    .then(r => r.json())
-    .then(data => {
-      document.getElementById('progress-fill').style.width = '100%';
-      document.getElementById('progress-text').textContent = `Done! ${data.processed} photos processed`;
-      setTimeout(() => { document.getElementById('progress-wrap').style.display = 'none'; }, 3000);
-      loadRecords();
-      showToast(`✅ ${data.processed} photos processed`);
-    })
-    .catch(() => {
-      document.getElementById('progress-text').textContent = 'Upload failed. Check server is running.';
-    });
+async function init(){
+  const [sm,ds]=await Promise.all([
+    fetch('/series_map').then(r=>r.json()).catch(()=>({})),
+    fetch('/designs').then(r=>r.json()).catch(()=>[])
+  ]);
+  SERIES_MAP=sm; DESIGNS=ds;
+  const dsel=document.getElementById('inp-design');
+  DESIGNS.forEach(d=>{
+    dsel.innerHTML+=`<option value="${d}">${d.replace(/_/g,' ')}</option>`;
+  });
+  loadRecords();
 }
 
-// ── Records ───────────────────────────────────────────────────
-function loadRecords() {
-  fetch('/records').then(r => r.json()).then(data => {
-    allRecords = data;
-    renderGrid();
+// ── Upload ──────────────────────────────────────────────────
+const uz=document.getElementById('uz');
+document.getElementById('file-input').addEventListener('change',function(){
+  if(this.files.length) doUpload(this.files);
+});
+uz.addEventListener('dragover',e=>{e.preventDefault();uz.classList.add('over')});
+uz.addEventListener('dragleave',()=>uz.classList.remove('over'));
+uz.addEventListener('drop',e=>{e.preventDefault();uz.classList.remove('over');if(e.dataTransfer.files.length)doUpload(e.dataTransfer.files)});
+
+async function doUpload(files){
+  const reviewer=document.getElementById('reviewer').value||'Team';
+  const total=files.length;
+  document.getElementById('pw').style.display='block';
+  document.getElementById('pf').style.width='5%';
+  document.getElementById('pt').textContent=`Uploading 0 of ${total}...`;
+  let done=0;
+  const CHUNK=10;
+  const arr=Array.from(files);
+  for(let i=0;i<arr.length;i+=CHUNK){
+    const chunk=arr.slice(i,i+CHUNK);
+    const fd=new FormData();
+    chunk.forEach(f=>fd.append('photos',f));
+    fd.append('reviewer',reviewer);
+    try{
+      const r=await fetch('/upload',{method:'POST',body:fd});
+      const d=await r.json();
+      done+=d.processed||0;
+    }catch(e){}
+    const pct=Math.min(Math.round(((i+CHUNK)/total)*100),99);
+    document.getElementById('pf').style.width=pct+'%';
+    document.getElementById('pt').textContent=`Uploaded ${Math.min(i+CHUNK,total)} of ${total}...`;
+  }
+  document.getElementById('pf').style.width='100%';
+  document.getElementById('pt').textContent=`✅ Done! ${done} photos uploaded`;
+  setTimeout(()=>document.getElementById('pw').style.display='none',4000);
+  loadRecords();
+  showToast(`✅ ${done} photos uploaded`);
+  document.getElementById('file-input').value='';
+}
+
+// ── Records ─────────────────────────────────────────────────
+function loadRecords(){
+  fetch('/records').then(r=>r.json()).then(data=>{
+    allRecords=data;
+    if(curLoc) renderPhotos(curLoc);
+    else renderFolders();
     updateStats();
   });
 }
 
-function renderGrid() {
-  const grid = document.getElementById('photo-grid');
-  const filtered = currentFilter === 'All' ? allRecords : allRecords.filter(r => r.status === currentFilter);
-  document.getElementById('count-badge').textContent = `${filtered.length} photo${filtered.length !== 1 ? 's' : ''}`;
+function updateStats(){
+  fetch('/stats').then(r=>r.json()).then(d=>{
+    document.getElementById('st1').textContent=d.total;
+    document.getElementById('st2').textContent=d.approved;
+    document.getElementById('st3').textContent=d.manual;
+    document.getElementById('st4').textContent=d.rejected;
+  });
+}
 
-  if (filtered.length === 0) {
-    grid.innerHTML = `<div class="empty" style="grid-column:1/-1">
-      <div class="big-icon">📭</div>
-      <h3>No photos here</h3>
-      <p>${allRecords.length === 0 ? 'Upload photos from the left panel' : 'No photos match this filter'}</p>
-    </div>`;
+// ── Folder view ──────────────────────────────────────────────
+function renderFolders(){
+  document.getElementById('view-folders').style.display='block';
+  document.getElementById('view-photos').style.display='none';
+  document.getElementById('top-loc').textContent='';
+
+  const byLoc={};
+  allRecords.forEach(r=>{
+    const loc=r.location||'Unknown';
+    if(!byLoc[loc]) byLoc[loc]={total:0,done:0,pending:0,rejected:0,series:r.series||''};
+    byLoc[loc].total++;
+    if(r.status==='Approved') byLoc[loc].done++;
+    else if(r.status==='Rejected') byLoc[loc].rejected++;
+    else byLoc[loc].pending++;
+  });
+
+  const locs=Object.entries(byLoc).sort((a,b)=>b[1].total-a[1].total);
+  document.getElementById('folder-cnt').textContent=`${locs.length} location${locs.length!==1?'s':''}`;
+
+  const grid=document.getElementById('folder-grid');
+  if(!locs.length){
+    grid.innerHTML='<div class="empty" style="grid-column:1/-1"><div class="ei">📭</div><p style="color:#666">Upload photos — they appear here sorted by location</p></div>';
     return;
   }
 
-  grid.innerHTML = filtered.map(r => {
-    const statusClass = r.status === 'Manual Check' ? 'manual' :
-                        r.status === 'Approved' ? 'approved' :
-                        r.status === 'Rejected' ? 'rejected' : 'duplicate';
-    const statusLabel = r.status === 'Manual Check' ? 'Needs Review' : r.status;
-    const statusCls   = r.status === 'Manual Check' ? 'Manual' : r.status;
-    return `<div class="photo-card ${statusClass}" onclick="openModal('${r.id}')">
-      <img class="photo-img" src="/image/${encodeURIComponent(r.filename)}" alt="" loading="lazy" onerror="this.style.background='#1e1e30';this.alt='No preview'">
-      <div class="photo-body">
-        <div class="photo-loc">${r.location || 'Unknown'}</div>
-        <div class="photo-meta">${r.series || '—'} · ${r.f_number || '—'}</div>
-        <div class="photo-meta">${r.uploaded_at || ''}</div>
-        <span class="photo-status status-${statusCls}">${statusLabel}</span>
+  grid.innerHTML=locs.map(([loc,v])=>{
+    const pct=v.total?Math.round(v.done/v.total*100):0;
+    const barColor=pct===100?'#27ae60':pct>50?'#f39c12':'#e94f37';
+    const emoji=pct===100?'✅':pct>0?'📂':'📁';
+    return `<div class="folder-card" onclick="openFolder('${loc}')">
+      <div class="folder-icon">${emoji}</div>
+      <div class="folder-name" title="${loc}">${loc}</div>
+      <div class="folder-count">${v.total} photo${v.total!==1?'s':''} · ${v.done} done</div>
+      <div class="folder-prog"><div class="folder-prog-fill" style="width:${pct}%;background:${barColor}"></div></div>
+    </div>`;
+  }).join('');
+}
+
+function openFolder(loc){
+  curLoc=loc;
+  document.getElementById('view-folders').style.display='none';
+  document.getElementById('view-photos').style.display='block';
+  document.getElementById('cur-loc-title').textContent=loc;
+  document.getElementById('top-loc').textContent=`📂 ${loc}`;
+  renderPhotos(loc);
+}
+
+function backToFolders(){
+  curLoc=null;
+  document.getElementById('view-folders').style.display='block';
+  document.getElementById('view-photos').style.display='none';
+  document.getElementById('top-loc').textContent='';
+  renderFolders();
+}
+
+// ── Photo grid ───────────────────────────────────────────────
+function renderPhotos(loc){
+  let photos=allRecords.filter(r=>(r.location||'Unknown')===loc);
+  if(curFilter!=='All') photos=photos.filter(r=>r.status===curFilter);
+
+  const total=allRecords.filter(r=>(r.location||'Unknown')===loc).length;
+  const done=allRecords.filter(r=>(r.location||'Unknown')===loc&&r.status==='Approved').length;
+  document.getElementById('photo-cnt').textContent=`${photos.length} photo${photos.length!==1?'s':''}`;
+  document.getElementById('loc-progress-text').textContent=`${done}/${total} approved`;
+
+  const grid=document.getElementById('photo-grid');
+  if(!photos.length){
+    grid.innerHTML='<div class="empty"><div class="ei">📭</div><p>No photos match filter</p></div>';
+    return;
+  }
+
+  grid.innerHTML=photos.map(r=>{
+    const sc=r.status==='Approved'?'done':r.status==='Rejected'?'rejected':'pending';
+    const sl=r.status==='Approved'?'done':r.status==='Rejected'?'rejected':'pending';
+    const fnDisplay=r.f_number||'—';
+    const plate=r.auto_plate||'';
+    return `<div class="pcard ${sc}" onclick="openPhoto('${r.id}')">
+      <img class="pimg" src="/image/${r.id}" alt="" loading="lazy" onerror="this.style.display='none'">
+      <div class="pbody">
+        <div class="pnum">${fnDisplay}</div>
+        <div class="pmeta">${plate||'No plate entered'}</div>
+        <div class="pmeta" style="color:${r.design&&r.design!=='—'?'#7F77DD':'#555'}">${(r.design||'—').replace(/_/g,' ')}</div>
+        <span class="pstatus ps-${sl}">${r.status==='Manual Check'?'Pending':r.status}</span>
       </div>
     </div>`;
   }).join('');
 }
 
-function updateStats() {
-  fetch('/stats').then(r => r.json()).then(d => {
-    document.getElementById('stat-total').textContent    = d.total;
-    document.getElementById('stat-approved').textContent = d.approved;
-    document.getElementById('stat-manual').textContent   = d.manual;
-    document.getElementById('stat-rejected').textContent = d.rejected;
-  });
+function setFilter(f,btn){
+  curFilter=f;
+  document.querySelectorAll('.ftab').forEach(t=>t.classList.remove('on'));
+  btn.classList.add('on');
+  if(curLoc) renderPhotos(curLoc);
+  else renderFolders();
 }
 
-function setFilter(filter, btn) {
-  currentFilter = filter;
-  document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
-  btn.classList.add('active');
-  renderGrid();
-}
+// ── Photo modal ──────────────────────────────────────────────
+function openPhoto(id){
+  const r=allRecords.find(x=>x.id===id);
+  if(!r) return;
+  curPhotoId=id;
 
-// ── Modal ─────────────────────────────────────────────────────
-function openModal(id) {
-  const r = allRecords.find(x => x.id === id);
-  if (!r) return;
-  currentRecord = r;
-  document.getElementById('modal-title').textContent = r.filename;
-  document.getElementById('modal-img').src = `/image/${encodeURIComponent(r.filename)}`;
+  document.getElementById('modal-title').textContent=r.filename||'Photo';
+  const img=document.getElementById('modal-img');
+  img.src=`/image/${r.id}`;
+  img.className='mimg';
 
-  const rows = [
-    ['Status',       `<span class="photo-status status-${r.status === 'Manual Check' ? 'Manual' : r.status}">${r.status}</span>`],
-    ['Location',     r.location || '—'],
-    ['State',        r.state || '—'],
-    ['Series',       r.series || '—'],
-    ['Sticker No.',  r.f_number || '—'],
-    ['Design',       r.design || '—'],
-    ['Date / Time',  r.datetime_stamp || '—'],
-    ['GPS',          (r.gps_text || '—').substring(0,80)],
-    ['Blur Score',   r.blur_score === 999 ? '—' : `${r.blur_score} ${r.blur_score < 80 ? '⚠️' : '✅'}`],
-    ['Brightness',   r.brightness === 128 ? '—' : `${r.brightness} ${r.brightness < 50 ? '⚠️' : '✅'}`],
-    ['Reviewer',     r.reviewer || '—'],
-    ['Uploaded',     r.uploaded_at || '—'],
-  ];
-  document.getElementById('modal-table').innerHTML = rows.map(([l,v]) =>
-    `<tr><td>${l}</td><td>${v}</td></tr>`).join('');
+  document.getElementById('modal-gps').textContent=r.gps_text?`📍 ${r.gps_text.substring(0,120)}...`:'';
 
-  const issues = r.issues || [];
-  document.getElementById('modal-issues').innerHTML = issues.length
-    ? issues.map(i => `<div class="issue-item">⚠ ${i}</div>`).join('')
-    : '<div style="font-size:12px;color:#27ae60;margin-top:8px">✅ No issues detected</div>';
+  document.getElementById('modal-info').innerHTML=`
+    <strong>Location:</strong> ${r.location||'Unknown'}<br>
+    <strong>State:</strong> ${r.state||'—'}<br>
+    <strong>Series:</strong> ${r.series||'—'}<br>
+    <strong>Date/Time:</strong> ${r.datetime_stamp||'—'}<br>
+    <strong>Uploaded by:</strong> ${r.reviewer||'—'}<br>
+    <strong>Status:</strong> ${r.status||'—'}`;
 
-  // Action buttons
-  const designOptions = DESIGNS.map(d => `<option value="${d}" ${r.design===d?'selected':''}>${d.replace(/_/g,' ')}</option>`).join('');
-  document.getElementById('modal-actions').innerHTML = `
-    <select id="modal-design-select" style="background:#1e1e30;border:1px solid #444;color:#ccc;padding:7px 10px;border-radius:6px;font-size:13px;">
-      <option value="">Set Design...</option>${designOptions}
-    </select>
-    <button class="btn btn-primary" onclick="setStatus('Approved')">✅ Approve</button>
-    <button class="btn btn-outline" onclick="setStatus('Manual Check')">⚠️ Keep for Review</button>
-    <button class="btn" style="background:#7b1d1d;color:#fff" onclick="setStatus('Rejected')">❌ Reject</button>
-  `;
+  // Auto plate — show detected value
+  const plate = r.auto_plate||'';
+  document.getElementById('inp-plate').value = plate;
+  document.getElementById('plate-badge').textContent = plate ? '✅ Auto-detected' : '⚠️ Not detected';
+  document.getElementById('plate-badge').style.color = plate ? '#27ae60' : '#f39c12';
+
+  // Series prefix from location
+  const series = r.series||'F';
+  document.getElementById('series-prefix').textContent = series;
+
+  // F-number — show just the numeric part
+  const fn = r.f_number||'';
+  const numPart = fn ? fn.replace(/^[A-Za-z]+/, '') : '';
+  document.getElementById('inp-fnumber').value = numPart;
+  updateFnPreview();
+  document.getElementById('inp-notes').value=r.notes||'';
+
+  const dsel=document.getElementById('inp-design');
+  const designVal = r.design && r.design !== '—' ? r.design : '';
+  dsel.value = designVal;
+  const dbadge = document.getElementById('design-badge');
+  if(designVal){
+    dbadge.textContent = '✅ Auto-detected';
+    dbadge.style.color = '#27ae60';
+  } else {
+    dbadge.textContent = '⚠️ Please select';
+    dbadge.style.color = '#f39c12';
+  }
+  dsel.addEventListener('change', ()=>{
+    dbadge.textContent = dsel.value ? '✅' : '⚠️ Please select';
+    dbadge.style.color = dsel.value ? '#27ae60' : '#f39c12';
+  }, {once:true});
+
   document.getElementById('modal').classList.add('open');
+  document.getElementById('inp-fnumber').focus();
 }
 
-function closeModal() {
+function closeModal(){
   document.getElementById('modal').classList.remove('open');
-  currentRecord = null;
+  curPhotoId=null;
 }
-
-document.getElementById('modal').addEventListener('click', e => {
-  if (e.target === document.getElementById('modal')) closeModal();
+document.getElementById('modal').addEventListener('click',e=>{
+  if(e.target===document.getElementById('modal')) closeModal();
 });
 
-function setStatus(status) {
-  if (!currentRecord) return;
-  const design = document.getElementById('modal-design-select')?.value;
-  fetch('/update', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ id: currentRecord.id, status, design: design || undefined })
-  }).then(() => {
-    currentRecord.status = status;
-    if (design) currentRecord.design = design;
-    closeModal();
-    loadRecords();
-    showToast(`Photo marked as ${status}`);
-  });
+function toggleZoom(img){
+  img.classList.toggle('mimg-full');
 }
 
-// ── Exports ───────────────────────────────────────────────────
-function exportExcel() {
-  showToast('Generating Excel report...');
-  window.location.href = '/export_excel';
-}
-function exportPPT() {
-  showToast('Generating PPT report...');
-  window.location.href = '/export_ppt';
-}
-
-// ── Toast ─────────────────────────────────────────────────────
-function showToast(msg) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.style.display = 'block';
-  setTimeout(() => { t.style.display = 'none'; }, 3000);
+function updateFnPreview(){
+  const r = allRecords.find(x=>x.id===curPhotoId);
+  const series = (r&&r.series)||document.getElementById('series-prefix').textContent||'F';
+  const num = document.getElementById('inp-fnumber').value;
+  const preview = num ? `→ ${series}${num}` : '';
+  document.getElementById('fnumber-preview').textContent = preview;
+  document.getElementById('fnumber-preview').style.color = num ? '#27ae60' : '#888';
 }
 
-// Init
-loadRecords();
+document.getElementById('inp-fnumber').addEventListener('input', updateFnPreview);
+
+function getFormData(){
+  const r = allRecords.find(x=>x.id===curPhotoId);
+  const series = (r&&r.series)||document.getElementById('series-prefix').textContent||'F';
+  const num = document.getElementById('inp-fnumber').value.trim();
+  const f_number = num ? `${series}${num}` : '';
+  return {
+    id:         curPhotoId,
+    auto_plate: document.getElementById('inp-plate').value.trim(),
+    f_number:   f_number,
+    design:     document.getElementById('inp-design').value,
+    notes:      document.getElementById('inp-notes').value.trim(),
+  };
+}
+
+async function savePhoto(status){
+  if(!curPhotoId) return;
+  const data={...getFormData(), status};
+  await fetch('/update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+  // Update local record
+  const r=allRecords.find(x=>x.id===curPhotoId);
+  if(r){ Object.assign(r,data); }
+  showToast(`Saved as ${status==='Manual Check'?'Pending':status}`);
+  return r;
+}
+
+async function saveAndApprove(){
+  const fn=document.getElementById('inp-fnumber').value.trim();
+  if(!fn){ showToast('⚠️ Enter sticker number first!'); document.getElementById('inp-fnumber').focus(); return; }
+  await savePhoto('Approved');
+  loadRecords();
+  navPhoto(1);
+}
+async function saveAndPending(){ await savePhoto('Manual Check'); loadRecords(); navPhoto(1); }
+async function saveAndReject(){ await savePhoto('Rejected'); loadRecords(); navPhoto(1); }
+
+function navPhoto(dir){
+  const loc=curLoc||'all';
+  let photos=loc==='all'?allRecords:allRecords.filter(r=>(r.location||'Unknown')===loc);
+  if(curFilter!=='All') photos=photos.filter(r=>r.status===curFilter);
+  const idx=photos.findIndex(r=>r.id===curPhotoId);
+  if(idx===-1) return;
+  const next=photos[idx+dir];
+  if(next) openPhoto(next.id);
+  else { closeModal(); if(loc!=='all') renderPhotos(loc); }
+}
+
+// Keyboard shortcuts
+document.addEventListener('keydown',e=>{
+  if(!document.getElementById('modal').classList.contains('open')) return;
+  if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT'||e.target.tagName==='TEXTAREA') return;
+  if(e.key==='ArrowRight') navPhoto(1);
+  if(e.key==='ArrowLeft') navPhoto(-1);
+  if(e.key==='Escape') closeModal();
+});
+
+function exportExcel(){ showToast('Generating Excel...'); window.location.href='/export_excel'; }
+function exportPPT(){ showToast('Generating PPT...'); window.location.href='/export_ppt'; }
+
+function showToast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.style.display='block';
+  setTimeout(()=>t.style.display='none',2500);
+}
+
+init();
+setInterval(loadRecords, 15000);
 </script>
 </body>
 </html>
